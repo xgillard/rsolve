@@ -221,10 +221,131 @@ impl <T : fmt::Debug > fmt::Debug for LiteralsMap<T> {
 
 #[cfg(test)]
 mod test_array {
-    // TODO Test the behavior of the Array structure
+    use super::*;
+    // an_array_cannot_have_zero_size is prevented by the compiler
+
+    #[test]
+    fn an_array_can_have_zero_size(){
+        Array::<u32>::new(0);
+    }
+
+    #[test]
+    fn array_index_can_be_zero(){
+        let array = Array::<u32>::new(2);
+        array[0];
+    }
+
+    #[test]
+    fn array_index_can_be_positive(){
+        let array = Array::<u32>::new(2);
+        array[1];
+    }
+
+    #[test]
+    #[should_panic]
+    fn array_index_cant_be_negative(){
+        let array = Array::<u32>::new(2);
+        array[-1];
+    }
+
+    #[test]
+    #[should_panic]
+    fn array_index_cant_go_out_of_bounds(){
+        let array = Array::<u32>::new(2);
+        array[2];
+    }
+
+    #[test]
+    fn array_index_can_be_mutated_zero(){
+        let mut array = Array::<u32>::new(2);
+        array[0] = 42;
+
+        assert_eq!(42, array[0]);
+    }
+
+    #[test]
+    fn array_index_can_be_mutated_positive(){
+        let mut array = Array::<u32>::new(2);
+        array[1] = 42;
+
+        assert_eq!(42, array[1]);
+    }
 }
 
 #[cfg(test)]
 mod test_literals_map {
-    // TODO Test the behavior of the LiteralsMap structure
+    use super::*;
+    // an_array_cannot_have_zero_size is prevented by the compiler
+
+    #[test]
+    fn lit_map_can_have_zero_size(){
+        LiteralsMap::<u32>::new(0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn lit_map_index_cant_be_zero(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[0];
+    }
+
+    #[test]
+    fn lit_map_index_can_be_positive(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[1];
+    }
+
+    #[test]
+    fn lit_map_index_can_be_negative(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[-1];
+    }
+
+    #[test]
+    fn lit_map_index_can_go_up_to_bound_positive(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[2];
+    }
+
+    #[test]
+    fn lit_map_index_can_go_up_to_bound_negative(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[-2];
+    }
+
+    #[test]
+    #[should_panic]
+    fn lit_map_index_cant_go_out_of_bounds_positive(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[3];
+    }
+
+    #[test]
+    #[should_panic]
+    fn lit_map_index_cant_go_out_of_bounds_negative(){
+        let lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[-3];
+    }
+
+    #[test]
+    fn lit_map_index_can_be_mutated_negative(){
+        let mut lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[-1] = 42;
+
+        assert_eq!(42, lit_map[-1]);
+    }
+    #[test]
+    #[should_panic]
+    fn lit_map_index_cant_be_mutated_zero(){
+        let mut lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[ 0] = 42;
+    }
+
+    #[test]
+    fn lit_map_index_can_be_mutated_positive(){
+        let mut lit_map = LiteralsMap::<u32>::new(2);
+        lit_map[1] = 42;
+
+        assert_eq!(42, lit_map[1]);
+    }
 }

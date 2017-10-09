@@ -3,7 +3,6 @@ extern crate rsolve;
 use rsolve::arrays::*;
 
 fn main() {
-
     let mut a = LiteralsMap::<u32>::new(3);
 
     a[-1] = 3;
