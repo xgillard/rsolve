@@ -1,17 +1,17 @@
 //! This file contains the implementation of an adaptable heap suitable to implement a VSIDS-like
 //! variable ordering
 use super::*;
-use arrays::Array;
+//use arrays::Array;
 
 /// The variable ordering structure (aka the variable heap)
 #[derive(Debug)]
 pub struct VariableOrdering {
     /// A binary heap implemented as an array of variables
-    heap: Array<Variable>,
+    heap: Vec<Variable>,
     /// The score associated with each element
-    score : Array<uint>,
+    score : Vec<uint>,
     /// The position of each id in the `heap` array
-    position: Array<uint>,
+    position: Vec<uint>,
     /// The current size (#elements) in the heap
     size: uint,
     /// The capacity of the buffers
@@ -25,15 +25,15 @@ impl VariableOrdering {
         let mut ret = VariableOrdering {
             capa    : capa,
             size    : capa,
-            heap    : Array::new(1+capa),
-            score   : Array::new(1+capa),
-            position: Array::new(1+capa)
+            heap    : Vec::with_capacity((1+capa) as usize),
+            score   : Vec::with_capacity((1+capa) as usize),
+            position: Vec::with_capacity((1+capa) as usize)
         };
 
         for i in 0..(capa+1) {
-            ret.heap    [i] = i as Variable;
-            ret.position[i] = i;
-            ret.score   [i] = i;
+            ret.heap.push(i as Variable);
+            ret.position.push(i);
+            ret.score.push(i);
         }
 
         return ret;
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn pop_top_must_remove_items_in_decreasing_score_order(){
         let mut tested = VariableOrdering::new(MAX);
-        for i in 1..MAX+1 { tested.bump(i, i as u32); }
+        for i in 1..MAX+1 { tested.bump(i, i); }
 
         let mut last = usize::max_value();
         for i in 0..MAX {
