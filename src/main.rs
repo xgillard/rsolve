@@ -4,10 +4,10 @@ use rsolve::branching::*;
 
 fn main() {
     let     now = SystemTime::now();
-    let    capa = 10_000_000;
+    let    capa = 100_000_000_u32;
     let mut ord = VariableOrdering::new(capa);
 
-    for i in 1..capa+1 { ord.bump(i, i as u32); }
+    for i in 1..capa+1 { ord.bump(i, i); }
 
     for _ in 1..capa+1 { ord.pop_top(); }
 

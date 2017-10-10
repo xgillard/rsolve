@@ -1,5 +1,6 @@
 extern crate libc;
 
+use super::*;
 use std::fmt;
 use std::mem;
 use std::ops::{Drop, Index, IndexMut};
@@ -18,7 +19,7 @@ use std::ops::{Drop, Index, IndexMut};
 ///
 pub struct Array<T> {
     /// the size of the content
-    len: usize,
+    len: uint,
     /// the buffer holding the data
     buf: *mut T
 }
@@ -26,11 +27,11 @@ pub struct Array<T> {
 impl <T> Array<T> {
     /// Constructs a new array with some given size, which one is fixed once and for all.
     /// This kind of array is never reszied
-    pub fn new(sz: usize) -> Array<T> {
+    pub fn new(sz: uint) -> Array<T> {
         unsafe {
             return Array {
                 len : sz,
-                buf : libc::malloc(sz * mem::size_of::<T>() ) as *mut T
+                buf : libc::malloc((sz as usize) * mem::size_of::<T>() ) as *mut T
             }
         }
     }
@@ -38,7 +39,7 @@ impl <T> Array<T> {
     /// Checks that `idx` respects the bounds of the array. Otherwise, it panics with an
     /// helpful message
     #[inline]
-    fn check_bounds(&self, idx: usize) {
+    fn check_bounds(&self, idx: uint) {
         if idx >= self.len {
             panic!("{} is not a valid index: the allowed range is 0..{}", idx, self.len-1);
         }
@@ -54,14 +55,14 @@ impl <T> Drop for Array<T> {
     }
 }
 
-impl <T> Index<usize> for Array<T> {
+impl <T> Index<uint> for Array<T> {
     type Output = T;
 
     /// An array can be indexed with integer. The given index is to be understood as a simple offset
     /// from the start of the buffer. This function returns an *immutable* reference to an element
     /// of the array.
     #[inline]
-    fn index(&self, idx:usize) -> &T {
+    fn index(&self, idx:uint) -> &T {
         self.check_bounds(idx);
         unsafe {
             let idx = idx as isize;
@@ -70,12 +71,12 @@ impl <T> Index<usize> for Array<T> {
     }
 }
 
-impl <T> IndexMut<usize> for Array<T> {
+impl <T> IndexMut<uint> for Array<T> {
     /// An array can be indexed with integer. The given index is to be understood as a simple offset
     /// from the start of the buffer. This function returns an *immutable* reference to an element
     /// of the array.
     #[inline]
-    fn index_mut(&mut self, idx:usize) -> &mut T {
+    fn index_mut(&mut self, idx:uint) -> &mut T {
         self.check_bounds(idx);
         unsafe {
             let idx = idx as isize;
@@ -119,7 +120,7 @@ impl <T : fmt::Debug > fmt::Debug for Array<T> {
 ///
 pub struct LiteralsMap<T> {
     /// The number of variables that can be held in this `map`
-    nb_var: isize,
+    nb_var: uint,
     /// The pointer towards the data buffer
     buf   : *mut T
 }
@@ -127,17 +128,15 @@ pub struct LiteralsMap<T> {
 impl <T> LiteralsMap<T> {
     /// Creates a new LiteralsMap capable of holding the information associated to `nb_variables`
     /// of type `T`.
-    pub fn new(nb_vars: isize) -> LiteralsMap<T> {
-        if nb_vars < 0 { panic!("It is impossible to have a problem with <0 variables"); }
-
+    pub fn new(nb_vars: uint) -> LiteralsMap<T> {
         let nb_cells: usize = (1+ 2*nb_vars) as usize;
 
         unsafe {
             let buffer:*mut T = libc::malloc(nb_cells * mem::size_of::<T>()) as *mut T;
-            let center:*mut T = buffer.offset(nb_vars);
+            let center:*mut T = buffer.offset(nb_vars as isize);
 
             return LiteralsMap {
-                nb_var: nb_vars as isize,
+                nb_var: nb_vars,
                 buf   : center
             }
         }
@@ -146,11 +145,11 @@ impl <T> LiteralsMap<T> {
     /// Checks that `idx` respects the bounds of the array. Otherwise, it panics with an
     /// helpful message
     #[inline]
-    fn check_bounds(&self, idx: isize) {
+    fn check_bounds(&self, idx: iint) {
         if idx == 0 {
             panic!("Zero is not a valid literal. Hence it cannot be used as an index");
         }
-        if idx < -self.nb_var || idx > self.nb_var {
+        if idx.abs() > (self.nb_var as iint) {
             panic!("{} is not a valid literal index: the highest var id is {} ", idx, self.nb_var);
         }
     }
@@ -161,14 +160,14 @@ impl <T> Drop for LiteralsMap<T> {
     /// is done to free the objects that might be referenced by the buffer cells.
     fn drop(&mut self) {
         unsafe {
-            let base_ptr = self.buf.offset(-self.nb_var) as *mut T;
+            let base_ptr = self.buf.offset(-(self.nb_var as isize)) as *mut T;
             libc::free(base_ptr as *mut libc::c_void);
         }
     }
 }
 
 
-impl <T> Index<isize> for LiteralsMap<T> {
+impl <T> Index<iint> for LiteralsMap<T> {
     type Output = T;
 
     /// A literal is identified by an integer. The given index is the literal id. Concretely, it is
@@ -176,24 +175,24 @@ impl <T> Index<isize> for LiteralsMap<T> {
     /// positive or negative depending on the literal polarity. This function returns an *immutable*
     /// reference to the element associated with the given literal.
     #[inline]
-    fn index(&self, lit:isize) -> &T {
+    fn index(&self, lit:iint) -> &T {
         self.check_bounds(lit);
         unsafe {
-            return self.buf.offset(lit).as_ref().unwrap();
+            return self.buf.offset(lit as isize).as_ref().unwrap();
         }
     }
 }
 
-impl <T> IndexMut<isize> for LiteralsMap<T> {
+impl <T> IndexMut<iint> for LiteralsMap<T> {
     /// A literal is identified by an integer. The given index is the literal id. Concretely, it is
     /// translated to a simple offset in the `buf`. Note though that this offset can be either
     /// positive or negative depending on the literal polarity. This function returns an *immutable*
     /// reference to the element associated with the given literal.
     #[inline]
-    fn index_mut(&mut self, lit:isize) -> &mut T {
+    fn index_mut(&mut self, lit:iint) -> &mut T {
         self.check_bounds(lit);
         unsafe {
-            return self.buf.offset(lit).as_mut().unwrap();
+            return self.buf.offset(lit as isize).as_mut().unwrap();
         }
     }
 }
@@ -206,11 +205,9 @@ impl <T : fmt::Debug > fmt::Debug for LiteralsMap<T> {
         let mut res = String::from("LiteralsMap [ ");
 
         for i in 1..self.nb_var+1 {
-            let pos_i =  i as isize;
-            let neg_i = -i as isize;
-
-            res.push_str(format!("\n    {:+06} -> {:?}", pos_i, self[pos_i]).as_str());
-            res.push_str(format!("\n    {:+06} -> {:?}", neg_i, self[neg_i]).as_str());
+            let ii = i as iint;
+            res.push_str(format!("\n    {:+06} -> {:?}", ii, self[ ii]).as_str());
+            res.push_str(format!("\n    {:+06} -> {:?}",-ii, self[-ii]).as_str());
         }
 
         res.push_str("\n]");

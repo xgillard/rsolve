@@ -1,7 +1,6 @@
 //! This file contains the implementation of an adaptable heap suitable to implement a VSIDS-like
 //! variable ordering
 use super::*;
-
 use arrays::Array;
 
 /// The variable ordering structure (aka the variable heap)
@@ -10,19 +9,19 @@ pub struct VariableOrdering {
     /// A binary heap implemented as an array of variables
     heap: Array<Variable>,
     /// The score associated with each element
-    score : Array<u32>,
+    score : Array<uint>,
     /// The position of each id in the `heap` array
-    position: Array<usize>,
+    position: Array<uint>,
     /// The current size (#elements) in the heap
-    size: usize,
+    size: uint,
     /// The capacity of the buffers
-    capa: usize
+    capa: uint
 }
 
 impl VariableOrdering {
     /// Creates a new VariableOrdering heap capable with the given capacity. That is to say, one
     /// able to accept up to `capa` items.
-    pub fn new(capa: usize) -> VariableOrdering {
+    pub fn new(capa: uint) -> VariableOrdering {
         let mut ret = VariableOrdering {
             capa    : capa,
             size    : capa,
@@ -34,7 +33,7 @@ impl VariableOrdering {
         for i in 0..(capa+1) {
             ret.heap    [i] = i as Variable;
             ret.position[i] = i;
-            ret.score   [i] = i as u32;
+            ret.score   [i] = i;
         }
 
         return ret;
@@ -51,7 +50,7 @@ impl VariableOrdering {
     /// # Panics
     /// - if the given variable does not fit in the range [1 .. capa]
     #[inline]
-    pub fn bump(&mut self, var: Variable, nb_conflicts: u32) {
+    pub fn bump(&mut self, var: Variable, nb_conflicts: uint) {
         assert!(var > 0 && var <= self.capa , "`var` must be in the range [1 .. capa]");
 
         self.score[var] = (3*self.score[var] + (nb_conflicts<<5)) >> 2;
@@ -175,7 +174,7 @@ impl VariableOrdering {
     /// - the position of the child with the highest score or zero
     ///   when no such child exists.
     #[inline]
-    fn max_child_of(&self, pos: usize) -> usize {
+    fn max_child_of(&self, pos: uint) -> uint {
         let l_pos = pos << 1;
         let r_pos = l_pos +1;
 
