@@ -51,7 +51,7 @@ impl VariableOrdering {
     /// - if the given variable does not fit in the range [1 .. capa]
     #[inline]
     pub fn bump(&mut self, var: Variable, nb_conflicts: uint) {
-        assert!(var > 0 && var <= self.capa , "`var` must be in the range [1 .. capa]");
+        self.check_bounds(var);
 
         self.score[var] = (3*self.score[var] + (nb_conflicts<<5)) >> 2;
 
@@ -64,7 +64,7 @@ impl VariableOrdering {
     /// - if the given variable does not fit in the range [1 .. capa]
     #[inline]
 	pub fn push_back(&mut self, var: Variable) {
-        assert!(var > 0 && var <= self.capa , "`var` must be in the range [1 .. capa]");
+        self.check_bounds(var);
 
         let var_pos = self.position[var];
 
@@ -93,7 +93,7 @@ impl VariableOrdering {
 	/// - when one tries to pop an empty heap.
 	#[inline]
     pub fn pop_top(&mut self) -> Variable {
-        assert!(! self.is_empty() , "Cannot pop from an empty heap");
+        debug_assert!( !self.is_empty(), "Cannot pop from an empty heap");
 
         let var = self.heap[1];
 
@@ -185,6 +185,11 @@ impl VariableOrdering {
         let r_scr = self.score[ self.heap[r_pos] ];
 
         return if l_scr > r_scr { l_pos } else { r_pos };
+    }
+
+    #[inline]
+    fn check_bounds(&self, var:Variable){
+        debug_assert!(var > 0 && var <= self.capa, "`var` must be in the range [1 .. capa]");
     }
 }
 

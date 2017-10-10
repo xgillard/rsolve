@@ -40,9 +40,7 @@ impl <T> Array<T> {
     /// helpful message
     #[inline]
     fn check_bounds(&self, idx: uint) {
-        if idx >= self.len {
-            panic!("{} is not a valid index: the allowed range is 0..{}", idx, self.len-1);
-        }
+        debug_assert!(idx < self.len, "{} is not a valid index: the allowed range is 0..{}", idx, self.len-1);
     }
 }
 impl <T> Drop for Array<T> {
@@ -146,12 +144,8 @@ impl <T> LiteralsMap<T> {
     /// helpful message
     #[inline]
     fn check_bounds(&self, idx: iint) {
-        if idx == 0 {
-            panic!("Zero is not a valid literal. Hence it cannot be used as an index");
-        }
-        if idx.abs() > (self.nb_var as iint) {
-            panic!("{} is not a valid literal index: the highest var id is {} ", idx, self.nb_var);
-        }
+        debug_assert!( idx!=0, "Zero is not a valid literal. Hence it cannot be used as an index");
+        debug_assert!( idx.abs() <= (self.nb_var as iint), "{} is not a valid literal index: the highest var id is {} ", idx, self.nb_var);
     }
 }
 
