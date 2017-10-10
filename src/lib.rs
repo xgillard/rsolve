@@ -1,6 +1,6 @@
 //! The variables and literals are implemented as plain integers
-pub type Variable = u32;
-pub type Literal  = i32;
+pub type Variable = usize;
+pub type Literal  = isize;
 
 pub mod arrays;
 pub mod branching;

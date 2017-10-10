@@ -1,15 +1,15 @@
 extern crate rsolve;
-
-use rsolve::arrays::*;
+use std::time::SystemTime;
+use rsolve::branching::*;
 
 fn main() {
-    let mut a = LiteralsMap::<u32>::new(3);
+    let     now = SystemTime::now();
+    let    capa = 10_000_000;
+    let mut ord = VariableOrdering::new(capa);
 
-    a[-1] = 3;
-    a[-2] = 2;
-    a[-3] = 1;
-    a[ 1] = 3;
-    a[ 2] = 2;
-    a[ 3] = 1;
-    println!("{:?}", a)
+    for i in 1..capa+1 { ord.bump(i, i as u32); }
+
+    for _ in 1..capa+1 { ord.pop_top(); }
+
+    println!("elapsed {:?}", SystemTime::now().duration_since(now).unwrap());
 }

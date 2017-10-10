@@ -38,8 +38,8 @@ impl <T> Array<T> {
     /// Checks that `idx` respects the bounds of the array. Otherwise, it panics with an
     /// helpful message
     #[inline]
-    fn check_bounds(&self, idx: isize) {
-        if idx < 0 || idx >= self.len as isize {
+    fn check_bounds(&self, idx: usize) {
+        if idx >= self.len {
             panic!("{} is not a valid index: the allowed range is 0..{}", idx, self.len-1);
         }
     }
@@ -54,29 +54,31 @@ impl <T> Drop for Array<T> {
     }
 }
 
-impl <T> Index<isize> for Array<T> {
+impl <T> Index<usize> for Array<T> {
     type Output = T;
 
     /// An array can be indexed with integer. The given index is to be understood as a simple offset
     /// from the start of the buffer. This function returns an *immutable* reference to an element
     /// of the array.
     #[inline]
-    fn index(&self, idx:isize) -> &T {
+    fn index(&self, idx:usize) -> &T {
         self.check_bounds(idx);
         unsafe {
+            let idx = idx as isize;
             return self.buf.offset(idx).as_ref().unwrap();
         }
     }
 }
 
-impl <T> IndexMut<isize> for Array<T> {
+impl <T> IndexMut<usize> for Array<T> {
     /// An array can be indexed with integer. The given index is to be understood as a simple offset
     /// from the start of the buffer. This function returns an *immutable* reference to an element
     /// of the array.
     #[inline]
-    fn index_mut(&mut self, idx:isize) -> &mut T {
+    fn index_mut(&mut self, idx:usize) -> &mut T {
         self.check_bounds(idx);
         unsafe {
+            let idx = idx as isize;
             return self.buf.offset(idx).as_mut().unwrap();
         }
     }
@@ -89,11 +91,10 @@ impl <T : fmt::Debug > fmt::Debug for Array<T> {
         let mut res = String::from("Array [ ");
 
         for i in 0..self.len {
-            let ii = i as isize;
             if i == 0 {
-                res.push_str(format!("{:?}", self[ii]).as_str());
+                res.push_str(format!("{:?}", self[i]).as_str());
             } else {
-                res.push_str(format!(", {:?}", self[ii]).as_str());
+                res.push_str(format!(", {:?}", self[i]).as_str());
             }
         }
 
@@ -241,12 +242,16 @@ mod test_array {
         array[1];
     }
 
-    #[test]
-    #[should_panic]
-    fn array_index_cant_be_negative(){
-        let array = Array::<u32>::new(2);
-        array[-1];
-    }
+    /* ----------------------------------
+     * should not even compile !
+     * ----------------------------------
+     * #[test]
+     * #[should_panic]
+     * fn array_index_cant_be_negative(){
+     *     let array = Array::<u32>::new(2);
+     *     array[-1];
+     * }
+     */
 
     #[test]
     #[should_panic]
