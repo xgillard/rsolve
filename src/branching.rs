@@ -9,19 +9,19 @@ pub struct VariableOrdering {
     /// A binary heap implemented as an array of variables
     heap: Vec<Variable>,
     /// The score associated with each element
-    score : Vec<uint>,
+    score : Vec<usize>,
     /// The position of each id in the `heap` array
-    position: Vec<uint>,
+    position: Vec<usize>,
     /// The current size (#elements) in the heap
-    size: uint,
+    size: usize,
     /// The capacity of the buffers
-    capa: uint
+    capa: usize
 }
 
 impl VariableOrdering {
     /// Creates a new VariableOrdering heap capable with the given capacity. That is to say, one
     /// able to accept up to `capa` items.
-    pub fn new(capa: uint) -> VariableOrdering {
+    pub fn new(capa: usize) -> VariableOrdering {
         let mut ret = VariableOrdering {
             capa    : capa,
             size    : capa,
@@ -50,7 +50,7 @@ impl VariableOrdering {
     /// # Panics
     /// - if the given variable does not fit in the range [1 .. capa]
     #[inline]
-    pub fn bump(&mut self, var: Variable, nb_conflicts: uint) {
+    pub fn bump(&mut self, var: Variable, nb_conflicts: usize) {
         self.check_bounds(var);
 
         self.score[var] = (3*self.score[var] + (nb_conflicts<<5)) >> 2;
@@ -174,7 +174,7 @@ impl VariableOrdering {
     /// - the position of the child with the highest score or zero
     ///   when no such child exists.
     #[inline]
-    fn max_child_of(&self, pos: uint) -> uint {
+    fn max_child_of(&self, pos: usize) -> usize {
         let l_pos = pos << 1;
         let r_pos = l_pos +1;
 
