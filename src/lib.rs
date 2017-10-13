@@ -3,6 +3,7 @@ pub type Variable = usize;
 pub type Literal  = isize;
 
 pub mod branching;
+pub mod flags;
 
 #[cfg(test)]
 mod tests {
