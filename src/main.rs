@@ -1,5 +1,6 @@
 extern crate rsolve;
 use std::time::SystemTime;
+use rsolve::*;
 use rsolve::branching::*;
 
 fn main() {
@@ -7,7 +8,7 @@ fn main() {
     let    capa = 1_000;
     let mut ord = VariableOrdering::new(capa);
 
-    for i in 1..capa+1 { ord.bump(i, i); }
+    for i in 1..capa+1 { ord.bump(Variable::from(i), i); }
 
     for _ in 1..capa+1 { ord.pop_top(); }
 

@@ -1,9 +1,13 @@
-//! The variables and literals are implemented as plain integers
-pub type Variable = usize;
-pub type Literal  = isize;
+
+pub mod core;
+pub mod collections;
 
 pub mod branching;
 pub mod flags;
+//pub mod variables;
+
+// re-export
+pub use self::core::*;
 
 #[cfg(test)]
 mod tests {
