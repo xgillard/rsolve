@@ -8,22 +8,31 @@ pub type uint = u32;
 #[allow(non_camel_case_types)]
 pub type iint = i32;
 
+/// This enum trivially encapsulates the polarity (aka the sign) of a boolean variable
+pub enum Sign { Positive, Negative }
+
 // -----------------------------------------------------------------------------------------------
-// Variable
+/// # Variable
+/// This is as a basic variable as you can imagine. This type simply wraps an unsigned integer and
+/// behaves like it. (Copy iso move, equals)
 // -----------------------------------------------------------------------------------------------
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct Variable(uint);
 
 impl Variable {
+    /// Creates a Variable based on its numeric identifier
     pub fn from(x: uint) -> Variable {
         assert_ne!(x, 0, "Variables must be strictly positive");
         Variable(x)
     }
 
     #[inline]
+    /// Returns the numeric identifier of the variable
     pub fn to_usize(self) -> usize { self.0 as usize }
 }
 
+/// Because variables have an identity (besides their memory location), the Variable type implements
+/// Eq and PartialEq to allow comparison with the == operator
 impl PartialEq for Variable {
     fn eq(&self, other : &Variable) -> bool {
         self.0 == other.0
@@ -31,20 +40,22 @@ impl PartialEq for Variable {
 }
 
 // -----------------------------------------------------------------------------------------------
-// Literal
+/// # Literal
+/// In the same vein as the Variable type, Literal is a thin (but type safe) wrapper around a
+/// signed number that represents a literal.
 // -----------------------------------------------------------------------------------------------
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct Literal(iint);
 
-pub enum Sign { Positive, Negative }
-
 impl Literal {
-
+    /// Creates a Literal based on its numeric (signed) representation.
     pub fn from(l: iint) -> Literal {
         assert_ne!(l, 0, "Zero is not allowed as a literal identifier");
         Literal(l)
     }
 
+    /// Creates a Literal based on a variable and a sign (corresponds more closely to the
+    /// theoretical definition of a literal)
     pub fn from_var(v: Variable, s: Sign) -> Literal {
         match s {
             Sign::Positive => Literal::positive(v),
@@ -52,32 +63,41 @@ impl Literal {
         }
     }
 
+    /// Returns the positive literal associated with the given variable
     pub fn positive(v: Variable) -> Literal {
         Literal(  v.0 as iint )
     }
 
+    /// Returns the negative literal associated with the given variable
     pub fn negative(v: Variable) -> Literal {
         Literal(-(v.0 as iint))
     }
 
+    /// Return the variable associated with the given literal
     pub fn var(self) -> Variable {
         Variable(if self.0 > 0 { self.0 } else { -self.0 } as uint)
     }
 
+    /// Returns the sign of the given literal
     pub fn sign(self) -> Sign {
         if self.0 < 0 { Sign::Negative } else { Sign::Positive }
     }
 
     #[inline]
+    /// Returns the numeric identifier of the literal
     pub fn to_isize(self) -> isize { self.0 as isize }
 }
 
+/// Because literals have an identity (besides their memory location), the Literal type implements
+/// Eq and PartialEq to allow comparison with the == operator
 impl PartialEq for Literal {
     fn eq(&self, other : &Literal) -> bool {
         self.0 == other.0
     }
 }
 
+/// For the sake of convenience, the Literal type implements the Neg and Not traits so that a
+/// literal `x` can be simply negated using the `!x` and `-x` syntaxes
 impl Neg for Literal {
     type Output = Literal;
     fn neg(self) -> Literal {
@@ -85,6 +105,8 @@ impl Neg for Literal {
     }
 }
 
+/// For the sake of convenience, the Literal type implements the Neg and Not traits so that a
+/// literal `x` can be simply negated using the `!x` and `-x` syntaxes
 impl Not for Literal {
     type Output = Literal;
     fn not(self) -> Literal {
