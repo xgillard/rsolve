@@ -1,4 +1,7 @@
 use std::ops::*;
+
+use solver::*;
+
 // This file contains an example demonstration of how to implement a typesafe approach to Variables
 // and Literals in Rust. That, while remaining highly performant (newtypes are dropped at
 // compilation)
@@ -151,6 +154,73 @@ impl Not for Literal {
     }
 }
 
+// -----------------------------------------------------------------------------------------------
+/// # Clause
+/// Just like variables and literals, clauses are core concepts of a SAT problem. They are the very
+/// building blocks of the satisfiability checking problem (when encoded in CNF form).
+/// Concretely, a clause is a disjunction of literals, some of which need to be satisfied (else the
+/// whole problem is unsat).
+///
+/// The main responsibility of a clause object is to maintain a list of literals and arrange them
+/// to make propagation efficient. This is achieved using the two watched literals scheme. In
+/// particular, the Clause class is responsible for making sure that:
+/// - INVARIANT A: the two watched literals are at index 0 and 1
+/// - INVARIANT B: the propagated literal (if there is one) is at index 0.
+///
+/// The invariant A is specially useful when searching / assigning a new watched
+/// literals. It allows us to know immediately what literals are not watched and
+/// therefore elligible for watching.
+///
+/// The invariant B allows us to make an efficient implementation of the
+/// conflict analysis (and minimization) procedures. Indeed, it lets us immediately
+/// retrieve the antecedant of a propagated literal by starting the iteration
+/// at 1 instead of 0.
+///
+/// ## Note:
+/// The internal field is a Cell<Vec<T>> because we want a clause to be interior mutable.
+/// In other word, we dont care if the order of the literals changes as long as we have a
+///
+// -----------------------------------------------------------------------------------------------
+pub struct Clause(Vec<Literal>);
+
+impl Clause {
+	/// Tries to find a new literal that can be watched by the given clause.
+	///
+	/// # Return Value
+	/// This function returns a Result<Literal, Literal> that mut be interpreted as follows:
+	/// - Ok( l ) means that the clause found that l is not satisfied and can therefore be
+	///           watched by the current clause.
+	/// - Err(l ) means that no new literals is available to be watched. Hence, l is the last
+	///           literal that can possibly satisfy the clause. If that literal is True or
+	///           Unassigned, then the clause is unit. Otherwise, the clause is conflicting and a
+	///           conflict resolution procedure should be started
+    pub fn find_new_literal(&mut self, watched:Literal, valuation:&Valuation) -> Result<Literal, Literal> {
+        let mut literals = &mut self.0;
+
+        // Make sure that other WL is at position zero. This way, whenever the clause
+        // becomes unit, we are certain to respect invariant B.
+        if watched == literals[0] { literals.swap(0, 1); }
+
+        // If the clause is already satsified, we don't need to do anything
+        if valuation.is_true(literals[0]) { return Ok(watched); }
+
+        for i in 2..literals.len() {
+            let lit = literals[i];
+
+            // not False <==> True or Unassigned
+            if !valuation.is_false(lit) {
+                // enforce invariant A
+                literals.swap(1, i);
+                // tell that we need to start watching lit
+                return Ok(lit);
+            }
+        }
+
+        // We couldn't find any new literal to watch. Hence the clause is unit (under
+        // the current assignment) or conflicting.
+        return Err(literals[0]);
+    }
+}
 
 // -----------------------------------------------------------------------------------------------
 // ------------------------------------- TESTS ---------------------------------------------------
@@ -329,4 +399,56 @@ mod test_literal {
         assert_ne!(a, Literal::from(32));
         assert_ne!(a, Literal::from(-32));
     }
+}
+
+#[cfg(test)]
+mod test_clause {
+    use super::*;
+    use collections::*;
+
+    #[test]
+    fn find_new_literal_does_nothing_if_the_clause_is_already_sat(){
+        // crate correct valuation
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::True;
+        valuation.var_value[Variable::from(2)] = Bool::False;
+        valuation.var_value[Variable::from(4)] = Bool::False;
+        valuation.var_value[Variable::from(8)] = Bool::Undef;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(2);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(2)))
+    }
+
+    #[test]
+    fn find_new_literal_does_nothing_if_the_clause_is_already_sat_2(){
+        // crate correct valuation
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for i in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::True;
+        valuation.var_value[Variable::from(4)] = Bool::False;
+        valuation.var_value[Variable::from(8)] = Bool::Undef;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(1)))
+    }
+
+    // TODO
 }
