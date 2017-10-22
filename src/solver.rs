@@ -1,35 +1,33 @@
+use std::clone::Clone;
+
+use utils::*;
 use core::*;
 use collections::*;
 
 pub struct Solver {
-    valuation   : Valuation,           // Partial model under construction
-    constraints : Vec<Clause>,         // Fixed clauses database, aka original clauses
-    learned     : Vec<Clause>,         // Learned clauses database
+    valuation   : Valuation,             // Partial model under construction
+    constraints : Vec<Aliasable<Clause>>,// Fixed clauses database, aka original clauses
+    learned     : Vec<Aliasable<Clause>>,// Learned clauses database
 
-    watchers    : LitIdxVec<Vec<CId>>, // Watchers: vectors of watchers associated with each literal
+    watchers    : LitIdxVec<Vec<Alias<Clause>>>, // Watchers: vectors of watchers associated with each literal
 }
 
 impl Solver {
     fn propagate(&mut self, lit : Literal) -> Option<Conflict> {
         for i in 0..self.watchers[lit].len() {
-            let cid = self.watchers[lit][i];
-            let clause = match cid {
-                CId::Constraint(offset) => &mut self.constraints[offset],
-                CId::Learned   (offset) => &mut self.learned    [offset]
-            };
-
+            let mut clause = self.watchers[lit][i].clone();
             self.watchers[lit].swap_remove(i);
 
             match clause.find_new_literal(lit, &self.valuation) {
                 Ok (l) => {
                     // l was found, its ok. We only need to start watching it
-                    self.watchers[l].push(cid);
+                    self.watchers[l].push(clause);
                 },
                 Err(l) => {
                     // No result could be found, so we need to keep on watching lit
-                    self.watchers[lit].push(cid);
+                    self.watchers[lit].push(clause.clone());
                     // TODO: assigner si unit ( ==> trail.assign(l, cref, &mut self.valuation)
-                    return Some(Conflict(cid)); // or None if the assignment went on well
+                    return Some(Conflict(clause)); // or None if the assignment went on well
                 }
             }
         }
@@ -65,42 +63,7 @@ impl Valuation {
 }
 
 // -----------------------------------------------------------------------------------------------
-/// # CId (Clause Identifier)
-/// A clause identifier basically serves the same purpose as a raw pointer. However, it is somewhat
-/// safer than a true pointer because pushing to vec might provoke a reallocation, and hence make
-/// the pointer dangling. Note though, that whenever a clause is deleted, the CId might also become
-/// dangling. Or worse, it might refer to a wrong clause.
-// -----------------------------------------------------------------------------------------------
-#[derive(Clone, Copy, Eq, Debug)]
-enum CId {
-    Constraint(usize),
-    Learned(usize)
-}
-
-impl CId {
-    fn disciminant(&self) -> u8 {
-        match *self {
-            CId::Constraint(_) => 0,
-            CId::Learned   (_) => 1
-        }
-    }
-
-    fn offset(&self) -> usize {
-        match *self {
-            CId::Constraint(off) => off,
-            CId::Learned   (off) => off
-        }
-    }
-}
-
-impl PartialEq for CId {
-    fn eq(&self, other: &CId) -> bool {
-        self.disciminant() == other.disciminant() && self.offset() == other.offset()
-    }
-}
-
-// -----------------------------------------------------------------------------------------------
 /// # Conflict
 /// A simple algebraic type to explicit the fact that some clause is conflicting
 // -----------------------------------------------------------------------------------------------
-pub struct Conflict(CId);
+pub struct Conflict(Alias<Clause>);
