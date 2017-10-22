@@ -54,12 +54,12 @@ pub struct Alias<T> (*mut T);
 impl<T> Deref for Alias<T> {
     type Target = T;
 
-    #[inline]
+    #[inline(always)]
     fn deref(&self) -> &T { unsafe {& *self.0} }
 }
 
 impl <T> DerefMut for Alias<T> {
-    #[inline]
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {unsafe {&mut *self.0} }
 }
 
