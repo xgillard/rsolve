@@ -20,6 +20,7 @@ fn main() {
 use rsolve::utils::*;
 
 use std::mem;
+use std::rc::*;
 
 // il ne compacte donc pas !
 struct Xyz {
@@ -43,6 +44,7 @@ fn main(){
     println!("Bool {}", mem::size_of::<Bool>() );
     println!("bool {}", mem::size_of::<bool>() );
     println!("Xyz {}", mem::size_of::<Xyz>() );
+    println!("Rc {}", mem::size_of::<Rc<Clause>>() );
 
     println!("usize {}", mem::size_of::<usize>() );
 
