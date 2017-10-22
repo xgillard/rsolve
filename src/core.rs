@@ -181,9 +181,15 @@ impl Not for Literal {
 /// In other word, we dont care if the order of the literals changes as long as we have a
 ///
 // -----------------------------------------------------------------------------------------------
+#[derive(Debug, Clone)]
 pub struct Clause(Vec<Literal>);
 
 impl Clause {
+    /// Creates a new clause from its terms
+    pub fn new(terms: Vec<Literal>) -> Clause {
+        Clause(terms)
+    }
+
 	/// Tries to find a new literal that can be watched by the given clause.
 	///
 	/// # Return Value
