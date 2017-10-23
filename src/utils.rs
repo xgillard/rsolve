@@ -54,17 +54,25 @@ impl<T> Alias<T> {
     }
 
     /// Attempts to return the aliased information
-    pub fn get(&self) -> Option<&mut T> {
+    pub fn get_mut(&self) -> Option<&mut T> {
         match self.0.upgrade() {
             None       => None,
             Some(cell) => Some(unsafe { &mut * cell.get() })
+        }
+    }
+
+    /// Attempts to return the aliased information
+    pub fn get_ref(&self) -> Option<&T> {
+        match self.0.upgrade() {
+            None       => None,
+            Some(cell) => Some(unsafe { &* cell.get() })
         }
     }
 }
 
 impl<T> Debug for Alias<T> where T : Debug {
     fn fmt(&self, f: &mut Formatter) -> Result {
-        write!(f, "Alias({:?})", self.get() )
+        write!(f, "Alias({:?})", self.get_ref() )
     }
 }
 
@@ -109,17 +117,32 @@ mod test_aliases {
     }
 
     #[test]
-    fn get_must_yield_none_when_value_is_dropped(){
+    fn get_mut_must_yield_none_when_value_is_dropped(){
         let x = vec![1, 2, 3, 4, 5];
         let a_ = Aliasable::new(x);
         let a_1 = a_.alias();
 
         assert_eq!("Alias(Some([1, 2, 3, 4, 5]))", format!("{:?}", a_1));
-        assert_eq!("Some([1, 2, 3, 4, 5])",        format!("{:?}", a_1.get()));
+        assert_eq!("Some([1, 2, 3, 4, 5])",        format!("{:?}", a_1.get_mut()));
 
         mem::drop(a_);
 
         assert_eq!("Alias(None)", format!("{:?}", a_1));
-        assert_eq!("None",        format!("{:?}", a_1.get()));
+        assert_eq!("None",        format!("{:?}", a_1.get_mut()));
+    }
+
+    #[test]
+    fn get_ref_must_yield_none_when_value_is_dropped(){
+        let x = vec![1, 2, 3, 4, 5];
+        let a_ = Aliasable::new(x);
+        let a_1 = a_.alias();
+
+        assert_eq!("Alias(Some([1, 2, 3, 4, 5]))", format!("{:?}", a_1));
+        assert_eq!("Some([1, 2, 3, 4, 5])",        format!("{:?}", a_1.get_ref()));
+
+        mem::drop(a_);
+
+        assert_eq!("Alias(None)", format!("{:?}", a_1));
+        assert_eq!("None",        format!("{:?}", a_1.get_ref()));
     }
 }
