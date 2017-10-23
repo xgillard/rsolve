@@ -438,7 +438,7 @@ mod test_clause {
     fn find_new_literal_does_nothing_if_the_clause_is_already_sat_2(){
         // crate correct valuation
         let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for i in 0..8 { valuation.var_value.push(Bool::Undef); }
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
 
         valuation.var_value[Variable::from(1)] = Bool::False;
         valuation.var_value[Variable::from(2)] = Bool::True;
@@ -456,5 +456,108 @@ mod test_clause {
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(1)))
     }
 
-    // TODO
+    #[test]
+    fn find_new_literal_returns_ok_with_the_first_unassigned(){
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::False;
+        valuation.var_value[Variable::from(4)] = Bool::Undef;
+        valuation.var_value[Variable::from(8)] = Bool::Undef;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(4)))
+    }
+
+    #[test]
+    fn find_new_literal_does_not_pick_one_of_the_wl_as_new_wl(){
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::Undef;
+        valuation.var_value[Variable::from(4)] = Bool::False;
+        valuation.var_value[Variable::from(8)] = Bool::Undef;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(8)))
+    }
+
+    #[test]
+    fn find_new_literal_returns_ok_with_first_satisfied_literal_when_one_is_found_1(){
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::Undef;
+        valuation.var_value[Variable::from(4)] = Bool::True;
+        valuation.var_value[Variable::from(8)] = Bool::Undef;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(4)))
+    }
+
+    #[test]
+    fn find_new_literal_returns_ok_with_first_satisfied_literal_when_one_is_found_2(){
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::Undef;
+        valuation.var_value[Variable::from(4)] = Bool::False;
+        valuation.var_value[Variable::from(8)] = Bool::True;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(8)))
+    }
+
+    #[test]
+    fn find_new_literal_tells_what_literal_to_assert_when_it_fails_to_find_a_new_lit(){
+        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
+        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+
+        valuation.var_value[Variable::from(1)] = Bool::False;
+        valuation.var_value[Variable::from(2)] = Bool::Undef;
+        valuation.var_value[Variable::from(4)] = Bool::False;
+        valuation.var_value[Variable::from(8)] = Bool::False;
+
+        // create the tested clause
+        let mut clause = Clause(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)]);
+
+        let watched = Literal::from(1);
+        assert_eq!(clause.find_new_literal(watched, &valuation), Err(Literal::from(2)))
+    }
 }
