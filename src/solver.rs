@@ -15,19 +15,24 @@ pub struct Solver {
 impl Solver {
     fn propagate(&mut self, lit : Literal) -> Option<Conflict> {
         for i in 0..self.watchers[lit].len() {
-            let mut clause = self.watchers[lit][i].clone();
+            let watcher = self.watchers[lit][i].clone();
             self.watchers[lit].swap_remove(i);
 
-            match clause.find_new_literal(lit, &self.valuation) {
-                Ok (l) => {
-                    // l was found, its ok. We only need to start watching it
-                    self.watchers[l].push(clause);
-                },
-                Err(l) => {
-                    // No result could be found, so we need to keep on watching lit
-                    self.watchers[lit].push(clause.clone());
-                    // TODO: assigner si unit ( ==> trail.assign(l, cref, &mut self.valuation)
-                    return Some(Conflict(clause)); // or None if the assignment went on well
+            match watcher.get() {
+                None         => { /* The clause was deteted, hence the watcher can be ignored */ },
+                Some(clause) => {
+                    match clause.find_new_literal(lit, &self.valuation) {
+                        Ok (l) => {
+                            // l was found, its ok. We only need to start watching it
+                            self.watchers[l].push(watcher.clone());
+                        },
+                        Err(l) => {
+                            // No result could be found, so we need to keep on watching lit
+                            self.watchers[lit].push(watcher.clone());
+                            // TODO: assigner si unit ( ==> trail.assign(l, cref, &mut self.valuation)
+                            return Some(Conflict(watcher.clone())); // or None if the assignment went on well
+                        }
+                    }
                 }
             }
         }
