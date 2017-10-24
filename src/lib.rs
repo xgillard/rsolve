@@ -9,10 +9,3 @@ pub mod solver;
 
 // re-export
 pub use self::core::*;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-    }
-}
