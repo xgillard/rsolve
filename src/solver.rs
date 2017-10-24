@@ -245,6 +245,7 @@ mod test_solver {
 
         // start the test (for real !)
         solver.trail.assign(Literal::from( 3), None).expect(" 3 should be assignable");
+        // if I propagated here, then -2 shouldn't be assignable anymore
         solver.trail.assign(Literal::from(-2), None).expect("-2 should be assignable");
 
         let conflict = solver.propagate();

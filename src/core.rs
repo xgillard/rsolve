@@ -410,7 +410,6 @@ mod test_literal {
 #[cfg(test)]
 mod test_clause {
     use super::*;
-    use collections::*;
 
     #[test]
     fn find_new_literal_does_nothing_if_the_clause_is_already_sat(){
