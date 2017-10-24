@@ -1,4 +1,5 @@
 use std::clone::Clone;
+use std::ops::*;
 
 use utils::*;
 use core::*;
@@ -6,6 +7,7 @@ use collections::*;
 
 type Watcher = Alias<Clause>;
 type Conflict= Alias<Clause>;
+type Reason  = Alias<Clause>;
 
 // -----------------------------------------------------------------------------------------------
 /// # Conflict
@@ -83,7 +85,7 @@ impl Solver {
                             self.watchers[lit].push(watcher.clone());
                             // In the meantime we also need to assign `l`, otherwise the whole
                             // clause is going to be unsat
-                            match self.trail.assign(l) {
+                            match self.trail.assign(l, Some(watcher.clone())) {
                                 // Assignment went on well, we're done
                                 Ok(()) => { },
                                 // Conflict detected, return it !
@@ -103,21 +105,35 @@ impl Solver {
 /// # Valuation
 /// This struct encapsulates the idea of an assignment of Variables to Bool values.
 // -----------------------------------------------------------------------------------------------
+
 #[derive(Debug)]
-pub struct Valuation {
-    pub var_value : VarIdxVec<Bool>
+pub struct VariableState {
+    pub value : Bool,
+    pub reason: Option<Reason>
 }
+
+impl VariableState {
+    pub fn default() -> VariableState {
+        VariableState{value: Bool::Undef, reason: None}
+    }
+}
+
+#[derive(Debug)]
+pub struct Valuation ( VarIdxVec<VariableState> );
 
 impl Valuation {
 
     pub fn new(nb_vars: usize) -> Valuation {
-        let mut valuation = Valuation{ var_value: VarIdxVec::with_capacity(nb_vars) };
-        for _ in 0..nb_vars { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation(VarIdxVec::with_capacity(nb_vars));
+        // initialize the items
+        for _ in 0..nb_vars {
+            valuation.0.push(VariableState::default() );
+        }
         return valuation;
     }
 
     pub fn get_value(&self, l: Literal) -> Bool {
-        let value = self.var_value[l.var()];
+        let value = self.0[l.var()].value;
 
         match l.sign() {
             Sign::Positive =>  value,
@@ -125,27 +141,40 @@ impl Valuation {
         }
     }
 
-    pub fn set_value(&mut self, l: Literal, v : Bool) {
-        match l.sign() {
-            Sign::Positive => self.var_value[l.var()] =  v,
-            Sign::Negative => self.var_value[l.var()] = !v
-        }
+    pub fn set_value(&mut self, l: Literal, value : Bool, reason: Option<Reason>) {
+        self.0[l.var()] = VariableState{value, reason}
     }
 
     pub fn is_undef(&self, l: Literal) -> bool {
-        self.var_value[l.var()] == Bool::Undef
+        self.0[l.var()].value == Bool::Undef
     }
     pub fn is_true (&self, l: Literal) -> bool {
         match l.sign() {
-            Sign::Positive => self.var_value[l.var()] == Bool::True,
-            Sign::Negative => self.var_value[l.var()] == Bool::False,
+            Sign::Positive => self.0[l.var()].value == Bool::True,
+            Sign::Negative => self.0[l.var()].value == Bool::False,
         }
     }
     pub fn is_false(&self, l: Literal) -> bool {
         match l.sign() {
-            Sign::Positive => self.var_value[l.var()] == Bool::False,
-            Sign::Negative => self.var_value[l.var()] == Bool::True,
+            Sign::Positive => self.0[l.var()].value == Bool::False,
+            Sign::Negative => self.0[l.var()].value == Bool::True,
         }
+    }
+}
+
+impl Deref for Valuation {
+    type Target = VarIdxVec<VariableState>;
+
+    #[inline]
+    fn deref(&self) -> &VarIdxVec<VariableState> {
+        &self.0
+    }
+}
+
+impl DerefMut for Valuation {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut VarIdxVec<VariableState> {
+        &mut self.0
     }
 }
 
@@ -166,12 +195,12 @@ impl Trail {
     ///
     /// # Note
     /// We always push the *negation* of the assigned literal on the stack
-    fn assign(&mut self, lit: Literal) -> Result<(), ()> {
+    fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
         match self.valuation.get_value(lit) {
             Bool::True  => Ok(()),
             Bool::False => Err(()),
             Bool::Undef => {
-                self.valuation.set_value(lit, Bool::True);
+                self.valuation.set_value(lit, Bool::True, reason);
                 self.prop_queue.push(!lit);
                 Ok(())
             }
@@ -193,7 +222,7 @@ mod test_solver {
         add_clause(&mut solver, vec![3]);
 
         // start the test (for real !)
-        solver.trail.assign(Literal::from(3)).expect("3 should be assignable");
+        solver.trail.assign(Literal::from(3), None).expect("3 should be assignable");
 
         assert_eq!(solver.trail.propagated, 0);
         assert_eq!(solver.trail.prop_queue, vec![lit(-3)]);
@@ -215,11 +244,13 @@ mod test_solver {
         add_clause(&mut solver, vec![-2]);
 
         // start the test (for real !)
-        solver.trail.assign(Literal::from( 3)).expect(" 3 should be assignable");
-        solver.trail.assign(Literal::from(-2)).expect("-2 should be assignable");
+        solver.trail.assign(Literal::from( 3), None).expect(" 3 should be assignable");
+        solver.trail.assign(Literal::from(-2), None).expect("-2 should be assignable");
 
         let conflict = solver.propagate();
-        assert_eq!("Some(Alias(Some(Clause([Literal(2), Literal(-3)]))))", format!("{:?}", conflict));
+        // Swapped because -2 is propagated before the value 2 which is a consequence of asserting 3
+        // This simply follows from the trail queue ordering.
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(2)]))))", format!("{:?}", conflict));
         assert_eq!(solver.trail.prop_queue, vec![lit(-3), lit(2)])
     }
 

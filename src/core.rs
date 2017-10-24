@@ -414,14 +414,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_does_nothing_if_the_clause_is_already_sat(){
-        // crate correct valuation
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::True;
-        valuation.var_value[Variable::from(2)] = Bool::False;
-        valuation.var_value[Variable::from(4)] = Bool::False;
-        valuation.var_value[Variable::from(8)] = Bool::Undef;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::True , reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::Undef, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -436,14 +434,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_does_nothing_if_the_clause_is_already_sat_2(){
-        // crate correct valuation
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::True;
-        valuation.var_value[Variable::from(4)] = Bool::False;
-        valuation.var_value[Variable::from(8)] = Bool::Undef;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::True , reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::Undef, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -458,13 +454,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_returns_ok_with_the_first_unassigned(){
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::False;
-        valuation.var_value[Variable::from(4)] = Bool::Undef;
-        valuation.var_value[Variable::from(8)] = Bool::Undef;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::Undef, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::Undef, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -479,13 +474,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_does_not_pick_one_of_the_wl_as_new_wl(){
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::Undef;
-        valuation.var_value[Variable::from(4)] = Bool::False;
-        valuation.var_value[Variable::from(8)] = Bool::Undef;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::Undef, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::Undef, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -500,13 +494,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_returns_ok_with_first_satisfied_literal_when_one_is_found_1(){
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::Undef;
-        valuation.var_value[Variable::from(4)] = Bool::True;
-        valuation.var_value[Variable::from(8)] = Bool::Undef;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::Undef, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::True , reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::Undef, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -521,13 +514,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_returns_ok_with_first_satisfied_literal_when_one_is_found_2(){
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::Undef;
-        valuation.var_value[Variable::from(4)] = Bool::False;
-        valuation.var_value[Variable::from(8)] = Bool::True;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::Undef, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::True , reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
@@ -542,13 +534,12 @@ mod test_clause {
 
     #[test]
     fn find_new_literal_tells_what_literal_to_assert_when_it_fails_to_find_a_new_lit(){
-        let mut valuation= Valuation { var_value: VarIdxVec::with_capacity(8) };
-        for _ in 0..8 { valuation.var_value.push(Bool::Undef); }
+        let mut valuation= Valuation::new(8);
 
-        valuation.var_value[Variable::from(1)] = Bool::False;
-        valuation.var_value[Variable::from(2)] = Bool::Undef;
-        valuation.var_value[Variable::from(4)] = Bool::False;
-        valuation.var_value[Variable::from(8)] = Bool::False;
+        valuation[Variable::from(1)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(2)] = VariableState{ value: Bool::Undef, reason: None};
+        valuation[Variable::from(4)] = VariableState{ value: Bool::False, reason: None};
+        valuation[Variable::from(8)] = VariableState{ value: Bool::False, reason: None};
 
         // create the tested clause
         let mut clause = Clause(vec![
