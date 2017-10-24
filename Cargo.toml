@@ -5,3 +5,7 @@ authors = ["Xavier Gillard <xavier.gillard@uclouvain.be>"]
 
 [dependencies]
 libc = "0.2"
+
+[profile.release]
+lto = true
+
