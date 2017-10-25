@@ -5,6 +5,7 @@ use utils::*;
 use core::*;
 use flags::*;
 use collections::*;
+use branching::*;
 
 type Watcher = Alias<Clause>;
 type Conflict= Alias<Clause>;
@@ -25,6 +26,13 @@ pub struct Solver {
     pub watchers    : LitIdxVec<Vec<Watcher>>,
     /// The flags associated with each literal
     pub flags       : LitIdxVec<Flags>,
+    /// The variable ordering heuristic (derivative of vsids)
+    pub var_order   : VariableOrdering,
+
+    /// The number of conflicts that have occurred since the last restart
+    pub nb_conflicts: uint,
+    /// The number of restarts that have occured since the very beginning
+    pub nb_restarts : usize
 }
 
 impl Solver {
@@ -36,10 +44,16 @@ impl Solver {
                 prop_queue: Vec::with_capacity(nb_vars),
                 valuation : Valuation::new(nb_vars)
             },
+
             constraints : vec![],
             learned     : vec![],
+
             watchers    : LitIdxVec::with_capacity(nb_vars),
-            flags       : LitIdxVec::with_capacity(nb_vars)
+            flags       : LitIdxVec::with_capacity(nb_vars),
+            var_order   : VariableOrdering::new(nb_vars as uint),
+
+            nb_conflicts: 0,
+            nb_restarts : 0
         };
 
         // initialize empty watchers lists
@@ -144,6 +158,67 @@ impl Solver {
     // ---------------------------- CLAUSE LEARNING ----------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+	/// Finds the position (in `prop_queue`) of the first unique implication point
+	/// implying the conflict detected because of `conflicting`. Concretely, this
+	/// is implemented with a backwards BFS traversal of the implication graph and
+	/// each step is an inverse resolution.
+	///
+	/// `conflicting` is the clause which was detected to be the reason of the conflict
+	/// This function returns the position of the first uip
+    pub fn find_first_uip(&mut self, conflicting: &Clause) -> usize {
+        // mark all literals in the conflict clause
+        for l in conflicting.iter() {
+            self.mark_and_bump(*l);
+        }
+
+        // backwards BFS rooted at the conflict to identify uip (and mark its cause)
+        let mut cursor = self.trail.prop_queue.len();
+        loop {
+            cursor -= 1;
+
+            // Whenever we've analyzed all the literals that are not *forced* by the constraints,
+            // we can stop.
+            if cursor < self.trail.forced { break }
+
+            // Whenever we've found an UIP, it is bound to be the first one. Hence, we can stop
+            if self.is_uip(cursor){ break }
+
+            // otherwise, we just proceed with the rest
+            let lit = self.trail.prop_queue[cursor];
+
+            // if a literal is not marked, we don't need to care about it
+            if !self.flags[lit].is_set(Flag::IsMarked) { continue }
+
+            // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
+            // decision literal because, if it were, the is_uip() would have been true.
+            match self.trail.valuation.get_reason(lit) {
+                // will never happen
+                None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
+                Some(alias) => match alias.get_ref() {
+                    // will not happen either
+                    None => panic!("The reason of {:?} was deleted but I still need it !"),
+                    // will always happen
+                    Some(cause) => {
+                        for l in cause.iter().skip(1) {
+                            self.mark_and_bump(*l);
+                        }
+                    }
+                }
+            }
+        }
+
+        return cursor;
+    }
+
+    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
+    /// not been marked-bumped yet
+    fn mark_and_bump(&mut self, lit : Literal) {
+        if !self.flags[lit].is_set(Flag::IsMarked) {
+            self.flags[lit].set(Flag::IsMarked);
+            self.var_order.bump(lit.var(), self.nb_conflicts);
+        }
+    }
+
     /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
     /// implication point (UIP). A position is an uip if:
     /// - it is a decision.
@@ -212,6 +287,10 @@ impl Valuation {
             Sign::Positive =>  value,
             Sign::Negative => !value
         }
+    }
+
+    pub fn get_reason(&self, l : Literal) -> Option<Reason> {
+        self.0[l.var()].reason.clone()
     }
 
     pub fn set_value(&mut self, l: Literal, value : Bool, reason: Option<Reason>) {
@@ -401,9 +480,57 @@ mod test_solver {
 
         let conflict = solver.propagate();
 
-        // FIXME: find first uip !!
-
-        assert!(solver.is_uip(6))
+        assert!(conflict.is_some());
+        assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
+        // note: is_uip() *must* be tested *after* find_first_uip() because the former method
+        //       is the one setting the IsMarked flag
+        assert!(solver.is_uip(6));
     }
 
+    // isUIP must be false when the literal is not false/marked
+    #[test]
+    fn is_uip_must_be_false_when_literal_is_not_false() {
+        let mut solver = Solver::new(8);
+        solver.add_problem_clause(vec![1]);
+
+        // simulate clause activation
+        assert!(solver.trail.assign(lit(1), Some(solver.constraints[0].alias())).is_ok());
+        assert!(solver.propagate().is_none());
+
+        // simulates stale data
+        solver.trail.prop_queue.push(lit(1));
+
+        assert!(!solver.is_uip(1));
+    }
+
+    // isUIP must be false when there is an other marked literal before next decision
+    #[test]
+    fn is_uip_must_be_false_when_there_is_an_other_marked_literal_before_next_decision(){
+        /*-
+         * a ------------------------------------/--- c
+         *                                      /
+         *     /------- e ---- f --- -b --- -h +
+         *    /                    /           \
+         * d /-- g ---------------/             \--- -c
+         *
+         */
+        let mut solver = Solver::new(8);
+        solver.add_problem_clause(vec![ 1,-8, 3]); // c0
+        solver.add_problem_clause(vec![ 1, 4,-5]); // c1
+        solver.add_problem_clause(vec![ 5,-6, 7]); // c2
+        solver.add_problem_clause(vec![ 6, 2, 7]); // c3
+        solver.add_problem_clause(vec![ 4,-7]);    // c4
+        solver.add_problem_clause(vec![-2, 8]);    // c5
+        solver.add_problem_clause(vec![-8,-3]);    // c6
+
+        assert_eq!(Ok(()), solver.trail.assign(lit(-1), None));
+        assert_eq!(Ok(()), solver.trail.assign(lit(-4), None));
+
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
+
+        assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
+        assert!(!solver.is_uip(7)); // just check that no other than the found uip is an uip
+    }
 }

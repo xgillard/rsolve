@@ -14,3 +14,7 @@ pub use self::core::*;
 pub fn lit(l: iint) -> Literal {
     Literal::from(l)
 }
+
+pub fn var(v: uint) -> Variable {
+    Variable::from(v)
+}
