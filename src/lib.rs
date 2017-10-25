@@ -9,3 +9,8 @@ pub mod solver;
 
 // re-export
 pub use self::core::*;
+
+
+pub fn lit(l: iint) -> Literal {
+    Literal::from(l)
+}

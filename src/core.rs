@@ -228,6 +228,27 @@ impl Clause {
     }
 }
 
+impl From<Vec<iint>> for Clause {
+    fn from(v : Vec<iint> ) -> Clause {
+        Clause(v.iter().map(|l| Literal::from(*l)).collect())
+    }
+}
+
+impl Deref for Clause {
+    type Target = Vec<Literal>;
+
+    #[inline]
+    fn deref(&self) -> &Vec<Literal>{
+        &self.0
+    }
+}
+impl DerefMut for Clause{
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Vec<Literal>{
+        &mut self.0
+    }
+}
+
 // -----------------------------------------------------------------------------------------------
 // ------------------------------------- TESTS ---------------------------------------------------
 // -----------------------------------------------------------------------------------------------
@@ -410,6 +431,7 @@ mod test_literal {
 #[cfg(test)]
 mod test_clause {
     use super::*;
+    use super::super::*;
 
     #[test]
     fn find_new_literal_does_nothing_if_the_clause_is_already_sat(){
@@ -549,5 +571,39 @@ mod test_clause {
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Err(Literal::from(2)))
+    }
+
+    #[test]
+    fn find_new_literal_does_not_return_one_that_has_already_been_falsified(){
+        /*-
+         * a ------------------------------------/--- c
+         *                                      /
+         *     /------- e ---- f --- -b --- -h +
+         *    /                    /           \
+         * d /-- g ---------------/             \--- -c
+         *
+         */
+        let mut solver = Solver::new(8);
+        solver.add_problem_clause(vec![ 1,-8, 3]); // c0
+        solver.add_problem_clause(vec![ 1, 4,-5]); // c1
+        solver.add_problem_clause(vec![ 5,-6, 7]); // c2
+        solver.add_problem_clause(vec![ 6, 2, 7]); // c3
+        solver.add_problem_clause(vec![ 4,-7]);    // c4
+        solver.add_problem_clause(vec![-2, 8]);    // c5
+        solver.add_problem_clause(vec![-8,-3]);    // c6
+
+        assert_eq!(Ok(()), solver.trail.assign(lit(-4), None));
+
+        let c1_alias = solver.constraints[1].alias();
+        let c1 = c1_alias.get_mut().unwrap();
+        assert_eq!(Ok(lit(-5)), c1.find_new_literal(lit(4), &solver.trail.valuation));
+
+        assert_eq!(Ok(()), solver.trail.assign(lit(-1), None));
+
+        assert!(solver.trail.valuation.is_false(lit(1)));
+        assert!(solver.trail.valuation.is_false(lit(4)));
+        assert!(solver.trail.valuation.is_undef(lit(-5)));
+
+        assert_eq!(Err(lit(-5)), c1.find_new_literal(lit(1), &solver.trail.valuation));
     }
 }
