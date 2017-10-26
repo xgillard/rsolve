@@ -481,6 +481,7 @@ mod test_solver {
         let conflict = solver.propagate();
 
         assert!(conflict.is_some());
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         // note: is_uip() *must* be tested *after* find_first_uip() because the former method
         //       is the one setting the IsMarked flag
@@ -533,4 +534,98 @@ mod test_solver {
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         assert!(!solver.is_uip(7)); // just check that no other than the found uip is an uip
     }
+
+    // findFirstUIP stops at first uip when it's not a decision (1st antecedant)
+    // Note: this is the same test scenario as for is_uip_must_be_true_..._before_next_decision.
+    //       It might be worth it to merge these two tests
+    #[allow(non_snake_case)]
+    #[test]
+    fn find_first_uip_stops_at_first_uip_even_if_its_not_a_decision___1st_antecedant(){
+        /*-
+         * a ------------------------------------/--- c
+         *                                      /
+         *     /------- e ---- f --- -b --- -h +
+         *    /                    /           \
+         * d /-- g ---------------/             \--- -c
+         *
+         */
+        let mut solver = Solver::new(8);
+        solver.add_problem_clause(vec![ 1,-8, 3]); // c0
+        solver.add_problem_clause(vec![ 1, 4,-5]); // c1
+        solver.add_problem_clause(vec![ 5,-6, 7]); // c2
+        solver.add_problem_clause(vec![ 6, 2, 7]); // c3
+        solver.add_problem_clause(vec![ 4,-7]);    // c4
+        solver.add_problem_clause(vec![-2, 8]);    // c5
+        solver.add_problem_clause(vec![-8,-3]);    // c6
+
+        assert_eq!(Ok(()), solver.trail.assign(lit(-1), None));
+        assert_eq!(Ok(()), solver.trail.assign(lit(-4), None));
+
+        let conflict = solver.propagate();
+
+        assert!(conflict.is_some());
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
+        assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
+        assert!(solver.is_uip(6));
+    }
+
+    // findFirstUIP stops at first uip when there is no uip but the decision
+    #[test]
+    fn find_first_uip_stops_at_first_uip_when_there_is_no_uip_but_the_decision(){
+        /*-
+         * 1 ---+---+- 3 -\
+         *       \ /       \
+         *        X          5
+         *       / \       /
+         * 2 ---+---+- 4 -/
+         *
+         */
+        let mut solver = Solver::new(5);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 1, 2,-4]);
+        solver.add_problem_clause(vec![ 3, 4,-5]);
+        solver.add_problem_clause(vec![ 3, 4, 5]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+        assert_eq!("Some(Alias(Some(Clause([Literal(5), Literal(4), Literal(3)]))))",
+                   format!("{:?}", conflict));
+        assert_eq!(1, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
+    }
+
+
+    // findFirstUIP stops at first uip when it's not a decision (deeper down)
+    #[allow(non_snake_case)]
+    #[test]
+    fn find_first_uip_stops_at_first_uip_even_if_its_not_a_decision___deeper_down(){
+        /*-
+         * 1 ---+     +- 5 -\
+         *       \   /       \
+         *         3          6
+         *       /   \       /
+         * 2 ---+     +- 4 -/
+		 *
+		 */
+        let mut solver = Solver::new(6);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 3,-4]);
+        solver.add_problem_clause(vec![ 3,-5]);
+        solver.add_problem_clause(vec![ 4, 5, 6]);
+        solver.add_problem_clause(vec![ 4, 5,-6]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+        assert_eq!("Some(Alias(Some(Clause([Literal(-6), Literal(5), Literal(4)]))))",
+                   format!("{:?}", conflict));
+        assert_eq!(2, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
+    }
+
 }
