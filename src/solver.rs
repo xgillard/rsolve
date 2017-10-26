@@ -210,15 +210,6 @@ impl Solver {
         return cursor;
     }
 
-    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
-    /// not been marked-bumped yet
-    fn mark_and_bump(&mut self, lit : Literal) {
-        if !self.flags[lit].is_set(Flag::IsMarked) {
-            self.flags[lit].set(Flag::IsMarked);
-            self.var_order.bump(lit.var(), self.nb_conflicts);
-        }
-    }
-
     /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
     /// implication point (UIP). A position is an uip if:
     /// - it is a decision.
@@ -247,6 +238,16 @@ impl Solver {
 
         return false;
     }
+
+    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
+    /// not been marked-bumped yet
+    fn mark_and_bump(&mut self, lit : Literal) {
+        if !self.flags[lit].is_set(Flag::IsMarked) {
+            self.flags[lit].set(Flag::IsMarked);
+            self.var_order.bump(lit.var(), self.nb_conflicts);
+        }
+    }
+
 }
 
 // -----------------------------------------------------------------------------------------------
