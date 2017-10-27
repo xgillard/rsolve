@@ -215,6 +215,36 @@ mod tests {
         assert!(! x.is_set(Flag::IsInConflictClause) );
     }
 
+    // is_set should tell whether x is set
+    #[test]
+    fn one_of_should_tell_whether_some_flag_is_on(){
+        let mut x = Flags::new();
+
+        assert!(! x.is_set(Flag::IsImplied) );
+        assert!(! x.is_set(Flag::IsNotImplied) );
+        assert!(! x.is_set(Flag::IsMarked) );
+        assert!(! x.is_set(Flag::IsInConflictClause) );
+
+        x.set(Flag::IsImplied);
+        x.set(Flag::IsMarked);
+
+        assert!( x.one_of(Flag::IsImplied, Flag::IsNotImplied) );
+        assert!( x.one_of(Flag::IsImplied, Flag::IsMarked) );
+        assert!( x.one_of(Flag::IsImplied, Flag::IsInConflictClause) );
+
+        assert!( x.one_of(Flag::IsMarked, Flag::IsImplied) );
+        assert!( x.one_of(Flag::IsMarked, Flag::IsNotImplied) );
+        assert!( x.one_of(Flag::IsMarked, Flag::IsInConflictClause) );
+
+        assert!( x.one_of(Flag::IsNotImplied, Flag::IsImplied) );
+        assert!( x.one_of(Flag::IsNotImplied, Flag::IsMarked) );
+        assert!(!x.one_of(Flag::IsNotImplied, Flag::IsInConflictClause) );
+
+        assert!( x.one_of(Flag::IsInConflictClause, Flag::IsImplied) );
+        assert!( x.one_of(Flag::IsInConflictClause, Flag::IsMarked) );
+        assert!(!x.one_of(Flag::IsInConflictClause, Flag::IsNotImplied) );
+    }
+
     // |   should yield
     #[test]
     fn pipe_op_should_yield(){

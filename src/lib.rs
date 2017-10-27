@@ -10,11 +10,8 @@ pub mod solver;
 // re-export
 pub use self::core::*;
 
+/// A shortcut notation to make a literal out of a number value
+pub fn lit(l: iint) -> Literal  { Literal::from(l) }
 
-pub fn lit(l: iint) -> Literal {
-    Literal::from(l)
-}
-
-pub fn var(v: uint) -> Variable {
-    Variable::from(v)
-}
+/// A shortcut notation to make a variable out of a number value
+pub fn var(v: uint) -> Variable { Variable::from(v) }
