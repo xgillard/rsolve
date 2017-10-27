@@ -7,11 +7,10 @@ use std::ops::{BitOr, BitAnd, BitOrAssign, BitAndAssign, BitXor, BitXorAssign};
 #[derive(Debug)]
 pub enum Flag {
     Clear              =  0, //--> serves to reset all flags
-    IsFalse            =  1, //--> when the literal is assigned false
-    IsMarked           =  2, //--> used during conflict analysis
-    IsImplied          =  4, //--> forced by the onoing c. clause
-    IsNotImplied       =  8, //--> not forced but effectively analysed
-    IsInConflictClause = 16  //--> makes it easy to retrieve the backjump point
+    IsMarked           =  1, //--> used during conflict analysis
+    IsImplied          =  2, //--> forced by the ongoing conflict clause
+    IsNotImplied       =  4, //--> not forced but effectively analysed
+    IsInConflictClause =  8  //--> makes it easy to retrieve the backjump point
 }
 
 /// The `Flags` newtype, as its name suggests, serves the point of collecting the various flags that
@@ -107,9 +106,6 @@ impl Debug for Flags {
             s = format!("{} Clear", s);
         }
 
-        if self.is_set(Flag::IsFalse) {
-            s = format!("{} IsFalse", s);
-        }
         if self.is_set(Flag::IsMarked) {
             s = format!("{} IsMarked", s);
         }
@@ -136,17 +132,15 @@ mod tests {
     fn set_should_turn_some_flag_on(){
         let mut x = Flags::new();
 
-        assert!(! x.is_set(Flag::IsFalse) );
         assert!(! x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
-        x.set(Flag::IsFalse);
+        x.set(Flag::IsImplied);
         x.set(Flag::IsMarked);
 
-        assert!(  x.is_set(Flag::IsFalse) );
-        assert!(! x.is_set(Flag::IsImplied) );
+        assert!(  x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(  x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
@@ -157,24 +151,22 @@ mod tests {
     fn unset_should_turn_some_flag_off(){
         let mut x = Flags::new();
 
-        assert!(! x.is_set(Flag::IsFalse) );
         assert!(! x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
-        x.set(Flag::IsFalse);
+        x.set(Flag::IsImplied);
         x.set(Flag::IsMarked);
 
-        assert!(  x.is_set(Flag::IsFalse) );
-        assert!(! x.is_set(Flag::IsImplied) );
+        assert!(  x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(  x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
         x.unset(Flag::IsMarked);
-        assert!(  x.is_set(Flag::IsFalse) );
-        assert!(! x.is_set(Flag::IsImplied) );
+
+        assert!(  x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
@@ -185,23 +177,20 @@ mod tests {
     fn reset_should_wipe_everything_off(){
         let mut x = Flags::new();
 
-        assert!(! x.is_set(Flag::IsFalse) );
         assert!(! x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
-        x.set(Flag::IsFalse);
+        x.set(Flag::IsImplied);
         x.set(Flag::IsMarked);
 
-        assert!(  x.is_set(Flag::IsFalse) );
-        assert!(! x.is_set(Flag::IsImplied) );
+        assert!(  x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(  x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
         x.reset();
-        assert!(! x.is_set(Flag::IsFalse) );
         assert!(! x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
@@ -212,17 +201,15 @@ mod tests {
     fn is_set_should_tell_whether_some_flag_is_on(){
         let mut x = Flags::new();
 
-        assert!(! x.is_set(Flag::IsFalse) );
         assert!(! x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(! x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
 
-        x.set(Flag::IsFalse);
+        x.set(Flag::IsImplied);
         x.set(Flag::IsMarked);
 
-        assert!(  x.is_set(Flag::IsFalse) );
-        assert!(! x.is_set(Flag::IsImplied) );
+        assert!(  x.is_set(Flag::IsImplied) );
         assert!(! x.is_set(Flag::IsNotImplied) );
         assert!(  x.is_set(Flag::IsMarked) );
         assert!(! x.is_set(Flag::IsInConflictClause) );
@@ -249,7 +236,7 @@ mod tests {
         let x = Flags(Flag::IsMarked as u8);
         assert_eq!( (x & Flag::IsMarked).0 , (Flags(Flag::IsMarked as u8)).0 );
 
-        let x = Flags(Flag::IsFalse as u8);
+        let x = Flags(Flag::IsImplied as u8);
         assert_eq!( (x & Flag::IsMarked).0 , 0_u8 );
     }
     // &=  should yield
@@ -260,7 +247,7 @@ mod tests {
         x &= Flag::IsMarked;
         assert_eq!( x.0 , Flag::IsMarked as u8 );
 
-        x &= Flag::IsFalse;
+        x &= Flag::IsImplied;
         assert_eq!( x.0 , 0_u8 );
     }
     // ^   should yield
@@ -269,8 +256,8 @@ mod tests {
         let x = Flags::new();
         assert_eq!( (x ^ Flag::IsMarked).0 , (Flags(Flag::IsMarked as u8)).0 );
 
-        let x = Flags(Flag::IsFalse as u8);
-        assert_eq!( (x ^ Flag::IsFalse).0 , 0_u8 );
+        let x = Flags(Flag::IsImplied as u8);
+        assert_eq!( (x ^ Flag::IsImplied).0 , 0_u8 );
     }
     // ^=  should mutate
     #[test]
