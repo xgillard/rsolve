@@ -121,10 +121,12 @@ impl Solver {
 	/// Notifies all the watchers of `lit` that `lit` has been falsified.
 	/// This method optionally returns a conflicting clause if one is found.
     pub fn propagate_literal(&mut self, lit : Literal) -> Option<Conflict> {
-        for _ in 0..self.watchers[lit].len() {
-            // remove the head of the list, always
-            let watcher = self.watchers[lit][0].clone();
-            self.watchers[lit].swap_remove(0);
+        // we loop backwards to avoid messing up with the items that are appended to the list while
+        // iterating over it. Logically, the two sets should be separated (but merged after the fn).
+        // This iterating scheme achieves that goal.
+        for i in (0..self.watchers[lit].len()).rev() {
+            let watcher = self.watchers[lit][i].clone();
+            self.watchers[lit].swap_remove(i);
 
             match watcher.get_mut() {
                 None         => { /* The clause was deteted, hence the watcher can be ignored */ },
@@ -158,6 +160,25 @@ impl Solver {
     // ---------------------------- CLAUSE LEARNING ----------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+	/// This method builds a and returns minimized conflict clause by walking the marked literals
+    /// to compute a cut.
+    ///
+	/// `uip` is the position of the 1st uip
+    pub fn build_conflict_clause(&mut self, uip: usize) -> Clause {
+        let mut learned = Vec::new();
+
+        for cusor in (self.trail.forced..uip+1).rev() {
+            let lit = self.trail.prop_queue[cusor];
+
+            if self.is_marked(lit) && !self.is_implied(lit) {
+                learned.push(lit);
+                self.flags[lit].set(Flag::IsInConflictClause);
+            }
+        }
+
+        return Clause::new(learned);
+    }
+
 	/// Finds the position (in `prop_queue`) of the first unique implication point
 	/// implying the conflict detected because of `conflicting`. Concretely, this
 	/// is implemented with a backwards BFS traversal of the implication graph and
@@ -187,7 +208,7 @@ impl Solver {
             let lit = self.trail.prop_queue[cursor];
 
             // if a literal is not marked, we don't need to care about it
-            if !self.flags[lit].is_set(Flag::IsMarked) { continue }
+            if !self.is_marked(lit) { continue }
 
             // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
             // decision literal because, if it were, the is_uip() would have been true.
@@ -221,14 +242,14 @@ impl Solver {
             return true;
         }
 
-        if !self.flags[literal].is_set(Flag::IsMarked) {
+        if !self.is_marked(literal) {
             return false;
         }
 
         for iter in (self.trail.forced..position).rev() {
             let iter_literal= self.trail.prop_queue[iter];
 
-            if self.flags[iter_literal].is_set(Flag::IsMarked) {
+            if self.is_marked(iter_literal) {
                 return false;
             }
             if self.trail.is_decision(iter_literal) {
@@ -242,12 +263,47 @@ impl Solver {
     /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
     /// not been marked-bumped yet
     fn mark_and_bump(&mut self, lit : Literal) {
-        if !self.flags[lit].is_set(Flag::IsMarked) {
-            self.flags[lit].set(Flag::IsMarked);
+        if !self.is_marked(lit) {
+            self.mark(lit);
             self.var_order.bump(lit.var(), self.nb_conflicts);
         }
     }
 
+
+    fn is_marked(&self, lit : Literal) -> bool {
+        self.flags[lit].is_set(Flag::IsMarked)
+    }
+    fn mark(&mut self, lit : Literal) {
+        self.flags[lit].set(Flag::IsMarked)
+    }
+    /// returns true iff recursive analysis showed `lit` to be implied by other literals
+    fn is_implied(&mut self, lit: Literal) -> bool {
+        // If it's already been analyzed, reuse that info
+        let flags_lit = self.flags[lit];
+        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
+            return flags_lit.is_set(Flag::IsImplied);
+        }
+
+        match self.trail.valuation.get_reason(lit) {
+            // If it's a decision, there's no way it is implied
+            None        => return false,
+            Some(alias) => match alias.get_ref() {
+                // will not happen either
+                None => panic!("The reason of {:?} was deleted but I still need it !"),
+                // will always happen
+                Some(cause) => {
+                    for l in cause.iter().skip(1) {
+                        if !self.is_marked(*l) && !self.is_implied(*l) {
+                            self.flags[lit].set(Flag::IsNotImplied);
+                            return false;
+                        }
+                    }
+                    self.flags[lit].set(Flag::IsImplied);
+                    return true;
+                }
+            }
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -439,7 +495,8 @@ mod test_solver {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!(format!("{:?}", solver.constraints[6].alias()), format!("{:?}", conflict.unwrap()));
+        assert_eq!(format!("{:?}", solver.constraints[0].alias()),
+                   format!("{:?}", conflict.unwrap()));
     }
 
     // isUIP must be true when the literal is a decision
@@ -482,7 +539,8 @@ mod test_solver {
         let conflict = solver.propagate();
 
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
+        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))",
+                   format!("{:?}", &conflict));
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         // note: is_uip() *must* be tested *after* find_first_uip() because the former method
         //       is the one setting the IsMarked flag
@@ -530,7 +588,8 @@ mod test_solver {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
+        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))",
+                   format!("{:?}", &conflict));
 
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         assert!(!solver.is_uip(7)); // just check that no other than the found uip is an uip
@@ -565,7 +624,7 @@ mod test_solver {
         let conflict = solver.propagate();
 
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
+        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))", format!("{:?}", &conflict));
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         assert!(solver.is_uip(6));
     }
@@ -593,7 +652,7 @@ mod test_solver {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(5), Literal(4), Literal(3)]))))",
+        assert_eq!("Some(Alias(Some(Clause([Literal(-5), Literal(3), Literal(4)]))))",
                    format!("{:?}", conflict));
         assert_eq!(1, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
     }
@@ -624,9 +683,161 @@ mod test_solver {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(-6), Literal(5), Literal(4)]))))",
+        assert_eq!("Some(Alias(Some(Clause([Literal(6), Literal(4), Literal(5)]))))",
                    format!("{:?}", conflict));
         assert_eq!(2, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
     }
 
+
+    #[test]
+    fn build_conflict_clause_exemple_1st_antecedant(){
+        /*-
+         * a ------------------------------------/--- c
+         *                                      /
+         *     /------- e ---- f --- -b --- -h +
+         *    /                    /           \
+         * d /-- g ---------------/             \--- -c
+         *
+         */
+        let mut solver = Solver::new(8);
+        solver.add_problem_clause(vec![ 1,-8, 3]); // c0
+        solver.add_problem_clause(vec![ 1, 4,-5]); // c1
+        solver.add_problem_clause(vec![ 5,-6, 7]); // c2
+        solver.add_problem_clause(vec![ 6, 2, 7]); // c3
+        solver.add_problem_clause(vec![ 4,-7]);    // c4
+        solver.add_problem_clause(vec![-2, 8]);    // c5
+        solver.add_problem_clause(vec![-8,-3]);    // c6
+
+        assert_eq!(Ok(()), solver.trail.assign(lit(-1), None));
+        assert_eq!(Ok(()), solver.trail.assign(lit(-4), None));
+
+        let conflict = solver.propagate();
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        let clause = solver.build_conflict_clause(uip);
+
+        assert_eq!("Clause([Literal(-8), Literal(1)])", format!("{:?}", clause));
+    }
+
+    #[test]
+    fn build_conflict_clause_exemple_no_uip_but_decision(){
+        /*-
+         * 1 ---+---+- 3 -\
+         *       \ /       \
+         *        X          5
+         *       / \       /
+         * 2 ---+---+- 4 -/
+         *
+         */
+        let mut solver = Solver::new(5);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 1, 2,-4]);
+        solver.add_problem_clause(vec![ 3, 4,-5]);
+        solver.add_problem_clause(vec![ 3, 4, 5]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        let clause = solver.build_conflict_clause(uip);
+
+        assert_eq!("Clause([Literal(2), Literal(1)])", format!("{:?}", clause));
+    }
+
+    // buildConflictClause exemple not first and not decision
+    #[test]
+    fn build_conflict_clause_exemple_not_decision_deeper_down(){
+        /*-
+         * 1 ---+     +- 5 -\
+         *       \   /       \
+         *         3          6
+         *       /   \       /
+         * 2 ---+     +- 4 -/
+		 *
+		 */
+        let mut solver = Solver::new(6);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 3,-4]);
+        solver.add_problem_clause(vec![ 3,-5]);
+        solver.add_problem_clause(vec![ 4, 5, 6]);
+        solver.add_problem_clause(vec![ 4, 5,-6]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        let clause = solver.build_conflict_clause(uip);
+
+        assert_eq!("Clause([Literal(3)])", format!("{:?}", clause));
+    }
+
+    // buildConflictClause does omit implied literals
+    #[test]
+    fn build_conflict_clause_exemple_short_circuit(){
+        /*-
+		 *     /---------------------\
+		 *    /                      \
+         * 1 +--+---+- 3 -+     +-----+- 6
+         *       \ /       \   /
+         *        X          5
+         *       / \       /   \
+         * 2 +--+---+- 4 -+     +-----+ -6
+		 *    \                      /
+		 *     \--------------------/
+		 */
+        let mut solver = Solver::new(6);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 1, 2,-4]);
+        solver.add_problem_clause(vec![ 3, 4,-5]);
+        solver.add_problem_clause(vec![ 1, 5, 6]);
+        solver.add_problem_clause(vec![ 2, 5,-6]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        let clause = solver.build_conflict_clause(uip);
+
+        assert_eq!("Clause([Literal(2), Literal(1)])", format!("{:?}", clause));
+    }
+
+    #[test]
+    fn build_conflict_clause_omits_implied_literals(){
+        /*-
+         * 1 -----------------+ 5
+         *   \               /
+         *    \             /
+         *     \           /
+         * 2 ---\------ 3 +
+         *       \         \
+         *        \         \
+         *         \         \
+         *          4 -------+ -5
+         */
+        let mut solver = Solver::new(5);
+
+        solver.add_problem_clause(vec![ 1,-4]);
+        solver.add_problem_clause(vec![ 2,-3]);
+
+        solver.add_problem_clause(vec![ 3, 4, 5]);
+        solver.add_problem_clause(vec![ 3, 1,-5]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        assert_eq!(3, uip);
+
+        let clause = solver.build_conflict_clause(uip);
+        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+    }
 }
