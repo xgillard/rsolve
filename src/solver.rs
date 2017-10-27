@@ -231,6 +231,31 @@ impl Solver {
         return cursor;
     }
 
+    /// Returns the position (index in `prop_queue`) until which the solver should backtrack
+    /// to continue searching while incorporating the knowledge gained with learned clause
+    /// implying `uip`.
+    ///
+    /// The returned position corresponds to the index of the *earliest* decision point which
+    /// makes the learned clause unit.
+    pub fn find_backjump_point(&self, uip: usize) -> usize {
+        let mut count_used    = 0;
+        let mut backjump = uip;
+
+        for cursor in (self.trail.forced..uip+1).rev() {
+            let lit = self.trail.prop_queue[cursor];
+
+            if self.flags[lit].is_set(Flag::IsInConflictClause) {
+                count_used += 1;
+            }
+
+            if count_used == 1 && self.trail.is_decision(lit) {
+                backjump = cursor;
+            }
+        }
+
+        return backjump;
+    }
+
     /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
     /// implication point (UIP). A position is an uip if:
     /// - it is a decision.
@@ -839,5 +864,122 @@ mod test_solver {
 
         let clause = solver.build_conflict_clause(uip);
         assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+    }
+
+    #[test]
+    fn find_backjump_point_must_rollback_everything_when_the_learned_clause_is_unit(){
+        /*-
+         * 1 ---+     +- 5 -\
+         *       \   /       \
+         *         3          6
+         *       /   \       /
+         * 2 ---+     +- 4 -/
+		 *
+		 */
+        let mut solver = Solver::new(6);
+
+        solver.add_problem_clause(vec![ 1, 2,-3]);
+        solver.add_problem_clause(vec![ 3,-4]);
+        solver.add_problem_clause(vec![ 3,-5]);
+        solver.add_problem_clause(vec![ 4, 5, 6]);
+        solver.add_problem_clause(vec![ 4, 5,-6]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+
+        let conflict = solver.propagate();
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        let clause = solver.build_conflict_clause(uip);
+
+        assert_eq!("Clause([Literal(3)])", format!("{:?}", clause));
+        assert_eq!(0, solver.find_backjump_point(uip));
+    }
+
+    #[test]
+    fn find_backjump_point_must_go_at_least_until_the_most_recent_decision(){
+        /*-
+         * 1 -----------------+ 5
+         *   \               /
+         *    \             /
+         *     \           /
+         * 2 ---\------ 3 +
+         *       \         \
+         *        \         \
+         *         \         \
+         *          4 -------+ -5
+         */
+        let mut solver = Solver::new(5);
+
+        solver.add_problem_clause(vec![ 1,-4]);
+        solver.add_problem_clause(vec![ 2,-3]);
+
+        solver.add_problem_clause(vec![ 3, 4, 5]);
+        solver.add_problem_clause(vec![ 3, 1,-5]);
+
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        assert_eq!(3, uip);
+
+        let clause = solver.build_conflict_clause(uip);
+        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+        assert_eq!(2, solver.find_backjump_point(uip));
+    }
+
+    #[test]
+    fn find_backjump_point_must_go_until_the_earliest_decision_leaving_the_learned_clause_unit(){
+        /*-
+		 * 1 ------------------------------------------------------------+ 5
+		 *   \                                                          /
+		 *    \   6   7   8   9   10                                   /
+		 *     \                                                      /
+		 *      \                                             2 --- 3 +
+		 *       \                                                    \
+		 *        \                                                    \
+		 *         \                                                    \
+		 *          4 --------------------------------------------------+ -5
+		 */
+        let mut solver = Solver::new(10);
+
+        solver.add_problem_clause(vec![ 1,-4]);
+        solver.add_problem_clause(vec![ 2,-3]);
+
+        solver.add_problem_clause(vec![ 3, 4, 5]);
+        solver.add_problem_clause(vec![ 3, 1,-5]);
+
+        // 1
+        assert!(solver.trail.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+        // 6
+        assert!(solver.trail.assign(lit(-6), None).is_ok());
+        assert!(solver.propagate().is_none());
+        // 7
+        assert!(solver.trail.assign(lit(-7), None).is_ok());
+        assert!(solver.propagate().is_none());
+        // 8
+        assert!(solver.trail.assign(lit(-8), None).is_ok());
+        assert!(solver.propagate().is_none());
+        // 9
+        assert!(solver.trail.assign(lit(-9), None).is_ok());
+        assert!(solver.propagate().is_none());
+        // 10
+        assert!(solver.trail.assign(lit(-10), None).is_ok());
+        assert!(solver.propagate().is_none());
+
+        assert!(solver.trail.assign(lit(-2), None).is_ok());
+        let conflict = solver.propagate();
+        assert!(conflict.is_some());
+
+        let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
+        assert_eq!(8, uip);
+
+        let clause = solver.build_conflict_clause(uip);
+        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+        assert_eq!(2, solver.find_backjump_point(uip));
     }
 }
