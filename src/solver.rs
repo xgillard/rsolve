@@ -12,8 +12,9 @@ type Conflict= Alias<Clause>;
 type Reason  = Alias<Clause>;
 
 // -----------------------------------------------------------------------------------------------
-/// # Conflict
-/// A simple algebraic type to explicit the fact that some clause is conflicting
+/// # Solver
+/// This structure encapsulates the state of the solver. The associated methods define the CDCL
+/// solving behavior.
 // -----------------------------------------------------------------------------------------------
 #[derive(Debug)]
 pub struct Solver {
