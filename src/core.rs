@@ -234,6 +234,12 @@ impl From<Vec<iint>> for Clause {
     }
 }
 
+impl From<Vec<Literal>> for Clause {
+    fn from(v : Vec<Literal> ) -> Clause {
+        Clause(v)
+    }
+}
+
 impl Deref for Clause {
     type Target = Vec<Literal>;
 

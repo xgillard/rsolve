@@ -1,6 +1,7 @@
 use std::clone::Clone;
 use std::ops::*;
 
+use super::lit;
 use utils::*;
 use core::*;
 use flags::*;
@@ -30,6 +31,8 @@ pub struct Solver {
     /// The variable ordering heuristic (derivative of vsids)
     pub var_order   : VariableOrdering,
 
+    /// The number of decisions that have been taken (so far) during the search
+    pub nb_decisions: uint,
     /// The number of conflicts that have occurred since the last restart
     pub nb_conflicts: uint,
     /// The number of restarts that have occured since the very beginning
@@ -53,6 +56,7 @@ impl Solver {
             flags       : LitIdxVec::with_capacity(nb_vars),
             var_order   : VariableOrdering::new(nb_vars as uint),
 
+            nb_decisions: 0,
             nb_conflicts: 0,
             nb_restarts : 0
         };
@@ -80,10 +84,10 @@ impl Solver {
             self.watchers[l].push(self.constraints.last().unwrap().alias());
         }
     }
-    pub fn add_learned_clause(&mut self, c :Vec<iint>) {
+    pub fn add_learned_clause(&mut self, c :Vec<Literal>) {
         let watched: Vec<Literal> = c.iter()
             .take(2)
-            .map(|l|Literal::from(*l))
+            .map(|l| *l)
             .collect();
 
         let clause = Aliasable::new(Clause::from(c));
@@ -160,12 +164,26 @@ impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- CLAUSE LEARNING ----------------------------------------------//
     // -------------------------------------------------------------------------------------------//
+    pub fn resolve_conflict(&mut self, conflicting: &Clause) -> Result<(), ()> {
+        let uip = self.find_first_uip(conflicting);
+        let learned = self.build_conflict_clause(uip);
+        let backjump = self.find_backjump_point(uip);
+
+        self.rollback(backjump);
+
+        self.add_learned_clause(learned);
+
+        let alias = self.learned.last().unwrap().alias();
+        let learned = alias.get_ref().unwrap();
+        let asserting_lit = learned[0];
+        return self.trail.assign(asserting_lit, Some(alias.clone()));
+    }
 
 	/// This method builds a and returns minimized conflict clause by walking the marked literals
     /// to compute a cut.
     ///
 	/// `uip` is the position of the 1st uip
-    pub fn build_conflict_clause(&mut self, uip: usize) -> Clause {
+    fn build_conflict_clause(&mut self, uip: usize) -> Vec<Literal> {
         let mut learned = Vec::new();
 
         for cusor in (self.trail.forced..uip+1).rev() {
@@ -177,7 +195,7 @@ impl Solver {
             }
         }
 
-        return Clause::new(learned);
+        return learned;
     }
 
 	/// Finds the position (in `prop_queue`) of the first unique implication point
@@ -242,6 +260,7 @@ impl Solver {
         let mut count_used    = 0;
         let mut backjump = uip;
 
+        // iterating over the trail from back to front
         for cursor in (self.trail.forced..uip+1).rev() {
             let lit = self.trail.prop_queue[cursor];
 
@@ -255,6 +274,42 @@ impl Solver {
         }
 
         return backjump;
+    }
+
+    /// Rolls back the search up to the given position.
+    pub fn rollback(&mut self, until : usize) {
+        // Unravel the portion of the trail with literal that really should be rolled back
+        let len = self.trail.prop_queue.len();
+        for i in (until..len).rev() {
+            let lit = self.trail.prop_queue[i];
+            self.undo(lit);
+        }
+
+        // Clear the analysis of all the other literals (those who shouldn't be cancelled but whose
+        // flags have been tampered with during the conflict clause analysis and recursive
+        // minimization)
+        for i in self.trail.forced..until {
+            let lit = self.trail.prop_queue[i];
+            self.flags[lit].reset();
+        }
+
+        // shrink the trail and reset the propagated cursor appropriately
+        self.trail.propagated = until;
+        self.trail.prop_queue.resize(until, lit(iint::max_value()));
+    }
+
+    /// Undo all state changes that have been done for some given literal
+    fn undo(&mut self, lit: Literal) {
+        if self.trail.is_decision(lit) {
+            self.nb_decisions -= 1;
+        }
+
+        // clear all flags
+        self.flags[lit].reset();
+        // clear the value & reason
+        self.trail.valuation.set_value(lit, Bool::Undef, None);
+        // make the decision possible again
+        self.var_order.push_back(lit.var());
     }
 
     /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
@@ -454,7 +509,6 @@ impl Trail {
 #[cfg(test)]
 mod test_solver {
     use super::*;
-    use super::super::*;
 
     #[test]
     fn propagate_processes_everything_until_a_fixed_point_is_reached(){
@@ -741,7 +795,7 @@ mod test_solver {
         let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
         let clause = solver.build_conflict_clause(uip);
 
-        assert_eq!("Clause([Literal(-8), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(-8), Literal(1)]", format!("{:?}", clause));
     }
 
     #[test]
@@ -768,7 +822,7 @@ mod test_solver {
         let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
         let clause = solver.build_conflict_clause(uip);
 
-        assert_eq!("Clause([Literal(2), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(2), Literal(1)]", format!("{:?}", clause));
     }
 
     // buildConflictClause exemple not first and not decision
@@ -797,7 +851,7 @@ mod test_solver {
         let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
         let clause = solver.build_conflict_clause(uip);
 
-        assert_eq!("Clause([Literal(3)])", format!("{:?}", clause));
+        assert_eq!("[Literal(3)]", format!("{:?}", clause));
     }
 
     // buildConflictClause does omit implied literals
@@ -829,7 +883,7 @@ mod test_solver {
         let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
         let clause = solver.build_conflict_clause(uip);
 
-        assert_eq!("Clause([Literal(2), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(2), Literal(1)]", format!("{:?}", clause));
     }
 
     #[test]
@@ -864,7 +918,7 @@ mod test_solver {
         assert_eq!(3, uip);
 
         let clause = solver.build_conflict_clause(uip);
-        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(3), Literal(1)]", format!("{:?}", clause));
     }
 
     #[test]
@@ -892,7 +946,7 @@ mod test_solver {
         let uip = solver.find_first_uip(conflict.unwrap().get_ref().unwrap());
         let clause = solver.build_conflict_clause(uip);
 
-        assert_eq!("Clause([Literal(3)])", format!("{:?}", clause));
+        assert_eq!("[Literal(3)]", format!("{:?}", clause));
         assert_eq!(0, solver.find_backjump_point(uip));
     }
 
@@ -928,7 +982,7 @@ mod test_solver {
         assert_eq!(3, uip);
 
         let clause = solver.build_conflict_clause(uip);
-        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(3), Literal(1)]", format!("{:?}", clause));
         assert_eq!(2, solver.find_backjump_point(uip));
     }
 
@@ -980,7 +1034,51 @@ mod test_solver {
         assert_eq!(8, uip);
 
         let clause = solver.build_conflict_clause(uip);
-        assert_eq!("Clause([Literal(3), Literal(1)])", format!("{:?}", clause));
+        assert_eq!("[Literal(3), Literal(1)]", format!("{:?}", clause));
         assert_eq!(2, solver.find_backjump_point(uip));
     }
+
+    #[test]
+    // rollback undoes all the choices (propagated or not) until the given limit
+    fn rollback_undoes_all_choices_until_the_limit() {
+        let mut solver = Solver::new(5);
+
+        for i in 1..6 {
+            assert!(solver.trail.assign(lit(i), None).is_ok());
+            solver.nb_decisions += 1; // technically, this should be a call to .decide()
+        }
+
+        solver.rollback(0);
+
+        assert!(solver.trail.valuation.is_undef(lit(1)));
+        assert!(solver.trail.valuation.is_undef(lit(2)));
+        assert!(solver.trail.valuation.is_undef(lit(3)));
+        assert!(solver.trail.valuation.is_undef(lit(4)));
+        assert!(solver.trail.valuation.is_undef(lit(5)));
+    }
+
+    #[test]
+    // rollback drops the analysis markers on all the elements between the root
+    // level (included) and the given limit
+    fn rollback_drops_all_flags_from_the_given_limit_until_the_root(){
+        let mut solver = Solver::new(5);
+
+        for i in 1..6 {
+            let lit = lit(i);
+            assert!(solver.trail.assign(lit, None).is_ok());
+            solver.nb_decisions += 1; // technically, this should be a call to .decide()
+
+            // TODO turn these to dedicated methods
+            solver.mark(lit);
+            solver.flags[lit].set(Flag::IsImplied);
+            solver.flags[lit].set(Flag::IsNotImplied);
+            solver.flags[lit].set(Flag::IsInConflictClause);
+
+        }
+
+        solver.rollback(5);
+
+        // TODO
+    }
+
 }
