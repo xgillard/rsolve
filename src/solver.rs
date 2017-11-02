@@ -1059,7 +1059,9 @@ mod test_solver {
 
     #[test]
     // rollback drops the analysis markers on all the elements between the root
-    // level (included) and the given limit
+    // level (included) and the given limit.
+    //
+    // -> No decision is undone but the analysis is reset
     fn rollback_drops_all_flags_from_the_given_limit_until_the_root(){
         let mut solver = Solver::new(5);
 
@@ -1069,16 +1071,55 @@ mod test_solver {
             solver.nb_decisions += 1; // technically, this should be a call to .decide()
 
             // TODO turn these to dedicated methods
-            solver.mark(lit);
-            solver.flags[lit].set(Flag::IsImplied);
-            solver.flags[lit].set(Flag::IsNotImplied);
-            solver.flags[lit].set(Flag::IsInConflictClause);
+            solver.mark(-lit);
+            solver.flags[-lit].set(Flag::IsImplied);
+            solver.flags[-lit].set(Flag::IsNotImplied);
+            solver.flags[-lit].set(Flag::IsInConflictClause);
 
         }
 
+        assert_eq!(5, solver.nb_decisions);
+
         solver.rollback(5);
 
-        // TODO
+        // it changed nothing
+        assert_eq!(5, solver.nb_decisions);
+        for i in 1..6 {
+            let l = lit(i);
+            assert!(solver.trail.valuation.is_true(l));
+            assert!(!solver.flags[l].is_set(Flag::IsMarked));
+            assert!(!solver.flags[l].is_set(Flag::IsImplied));
+            assert!(!solver.flags[l].is_set(Flag::IsNotImplied));
+            assert!(!solver.flags[l].is_set(Flag::IsInConflictClause));
+
+            assert!(solver.trail.valuation.is_false(-l));
+            assert!(!solver.flags[-l].is_set(Flag::IsMarked));
+            assert!(!solver.flags[-l].is_set(Flag::IsImplied));
+            assert!(!solver.flags[-l].is_set(Flag::IsNotImplied));
+            assert!(!solver.flags[-l].is_set(Flag::IsInConflictClause));
+        }
     }
 
+    #[test]
+    // rollback drops the analysis markers on all the elements between the root
+    // level (included) and the given limit
+    fn rollback_undoes_and_clears_analysis() {
+        let mut solver = Solver::new(5);
+
+        for i in 1..6 {
+            let lit = lit(i);
+            assert!(solver.trail.assign(lit, None).is_ok());
+            solver.nb_decisions += 1; // technically, this should be a call to .decide()
+
+            // TODO turn these to dedicated methods
+            solver.mark(-lit);
+            solver.flags[-lit].set(Flag::IsImplied);
+            solver.flags[-lit].set(Flag::IsNotImplied);
+            solver.flags[-lit].set(Flag::IsInConflictClause);
+        }
+
+        assert_eq!(5, solver.nb_decisions);
+        solver.rollback(3);
+        assert_eq!(3, solver.nb_decisions);
+    }
 }
