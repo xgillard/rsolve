@@ -6,7 +6,7 @@ use utils::*;
 use core::*;
 use flags::*;
 use collections::*;
-use branching::*;
+use variable_ordering::*;
 
 type Watcher = Alias<Clause>;
 type Conflict= Alias<Clause>;
@@ -20,6 +20,10 @@ type Reason  = Alias<Clause>;
 #[derive(Debug)]
 pub struct Solver {
     pub trail       : Trail,
+
+    pub valuation   : Valuation,
+    pub reason      : VarIdxVec<Option<Reason>>,
+
     pub constraints : Vec<Aliasable<Clause>>,
     pub learned     : Vec<Aliasable<Clause>>,
 
@@ -42,23 +46,24 @@ pub struct Solver {
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
-            trail : Trail {
-                forced    : 0,
-                propagated: 0,
-                prop_queue: Vec::with_capacity(nb_vars),
-                valuation : Valuation::new(nb_vars)
-            },
+            nb_decisions: 0,
+            nb_restarts : 0,
+            nb_conflicts: 0,
 
             constraints : vec![],
             learned     : vec![],
 
+            valuation   : Valuation::new(nb_vars),
+            reason      : VarIdxVec::with_capacity(nb_vars),
             watchers    : LitIdxVec::with_capacity(nb_vars),
             flags       : LitIdxVec::with_capacity(nb_vars),
             var_order   : VariableOrdering::new(nb_vars as uint),
 
-            nb_decisions: 0,
-            nb_conflicts: 0,
-            nb_restarts : 0
+            trail : Trail {
+                forced    : 0,
+                propagated: 0,
+                prop_queue: Vec::with_capacity(nb_vars),
+            }
         };
 
         // initialize empty watchers lists
@@ -103,6 +108,23 @@ impl Solver {
     // ---------------------------- PROPAGATION --------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+    /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
+    /// in the Valuation and it enqueues the negation of the literal on the propagation queue
+    ///
+    /// # Note
+    /// We always push the *negation* of the assigned literal on the stack
+    pub fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
+        match self.valuation.get_value(lit) {
+            Bool::True  => Ok(()),
+            Bool::False => Err(()),
+            Bool::Undef => {
+                self.valuation.set_value(lit, Bool::True);
+                self.trail.enqueue(lit);
+                Ok(())
+            }
+        }
+    }
+
 	/// This method propagates the information about all the literals that have been
 	/// enqueued. It returns an optional conflicting clause whenever conflict is detected
 	/// Otherwise, None is returned.
@@ -136,7 +158,7 @@ impl Solver {
             match watcher.get_mut() {
                 None         => { /* The clause was deteted, hence the watcher can be ignored */ },
                 Some(clause) => {
-                    match clause.find_new_literal(lit, &self.trail.valuation) {
+                    match clause.find_new_literal(lit, &self.valuation) {
                         Ok (l) => {
                             // l was found, its ok. We only need to start watching it
                             self.watchers[l].push(watcher.clone());
@@ -146,7 +168,7 @@ impl Solver {
                             self.watchers[lit].push(watcher.clone());
                             // In the meantime we also need to assign `l`, otherwise the whole
                             // clause is going to be unsat
-                            match self.trail.assign(l, Some(watcher.clone())) {
+                            match self.assign(l, Some(watcher.clone())) {
                                 // Assignment went on well, we're done
                                 Ok(()) => { },
                                 // Conflict detected, return it !
@@ -176,7 +198,7 @@ impl Solver {
         let alias = self.learned.last().unwrap().alias();
         let learned = alias.get_ref().unwrap();
         let asserting_lit = learned[0];
-        return self.trail.assign(asserting_lit, Some(alias.clone()));
+        return self.assign(asserting_lit, Some(alias.clone()));
     }
 
 	/// This method builds a and returns minimized conflict clause by walking the marked literals
@@ -189,7 +211,7 @@ impl Solver {
         for cusor in (self.trail.forced..uip+1).rev() {
             let lit = self.trail.prop_queue[cusor];
 
-            if self.is_marked(lit) && !self.is_implied(lit) {
+            if self.is_marked(lit) && !Solver::is_implied(lit, &mut self.flags, &self.reason) {
                 learned.push(lit);
                 self.flags[lit].set(Flag::IsInConflictClause);
             }
@@ -208,7 +230,7 @@ impl Solver {
     pub fn find_first_uip(&mut self, conflicting: &Clause) -> usize {
         // mark all literals in the conflict clause
         for l in conflicting.iter() {
-            self.mark_and_bump(*l);
+            Solver::mark_and_bump(*l, self.nb_conflicts, &mut self.flags, &mut self.var_order);
         }
 
         // backwards BFS rooted at the conflict to identify uip (and mark its cause)
@@ -231,16 +253,16 @@ impl Solver {
 
             // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
             // decision literal because, if it were, the is_uip() would have been true.
-            match self.trail.valuation.get_reason(lit) {
+            match &self.reason[lit.var()] {
                 // will never happen
-                None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
-                Some(alias) => match alias.get_ref() {
+                &None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
+                &Some(ref alias) => match alias.get_ref() {
                     // will not happen either
                     None => panic!("The reason of {:?} was deleted but I still need it !"),
                     // will always happen
                     Some(cause) => {
                         for l in cause.iter().skip(1) {
-                            self.mark_and_bump(*l);
+                            Solver::mark_and_bump(*l, self.nb_conflicts, &mut self.flags, &mut self.var_order);
                         }
                     }
                 }
@@ -268,7 +290,7 @@ impl Solver {
                 count_used += 1;
             }
 
-            if count_used == 1 && self.trail.is_decision(lit) {
+            if count_used == 1 && self.is_decision(lit) {
                 backjump = cursor;
             }
         }
@@ -300,14 +322,17 @@ impl Solver {
 
     /// Undo all state changes that have been done for some given literal
     fn undo(&mut self, lit: Literal) {
-        if self.trail.is_decision(lit) {
+        if self.is_decision(lit) {
             self.nb_decisions -= 1;
         }
 
         // clear all flags
         self.flags[lit].reset();
+
         // clear the value & reason
-        self.trail.valuation.set_value(lit, Bool::Undef, None);
+        self.valuation.set_value(lit, Bool::Undef);
+        self.reason[lit.var()] = None;
+
         // make the decision possible again
         self.var_order.push_back(lit.var());
     }
@@ -319,7 +344,7 @@ impl Solver {
     pub fn is_uip(&self, position: usize) -> bool {
         let literal = self.trail.prop_queue[position];
 
-        if self.trail.is_decision(literal) {
+        if self.is_decision(literal) {
             return true;
         }
 
@@ -333,7 +358,7 @@ impl Solver {
             if self.is_marked(iter_literal) {
                 return false;
             }
-            if self.trail.is_decision(iter_literal) {
+            if self.is_decision(iter_literal) {
                 return true;
             }
         }
@@ -343,13 +368,16 @@ impl Solver {
 
     /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
     /// not been marked-bumped yet
-    fn mark_and_bump(&mut self, lit : Literal) {
-        if !self.is_marked(lit) {
-            self.mark(lit);
-            self.var_order.bump(lit.var(), self.nb_conflicts);
+    fn mark_and_bump(lit : Literal, nb_conflicts: uint, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
+        if !flags[lit].is_set(Flag::IsMarked) {
+            flags[lit].set(Flag::IsMarked);
+            var_order.bump(lit.var(), nb_conflicts);
         }
     }
 
+    pub fn is_decision(&self, lit : Literal) -> bool {
+        self.reason[lit.var()].is_none()
+    }
 
     fn is_marked(&self, lit : Literal) -> bool {
         self.flags[lit].is_set(Flag::IsMarked)
@@ -357,117 +385,34 @@ impl Solver {
     fn mark(&mut self, lit : Literal) {
         self.flags[lit].set(Flag::IsMarked)
     }
+
     /// returns true iff recursive analysis showed `lit` to be implied by other literals
-    fn is_implied(&mut self, lit: Literal) -> bool {
+    fn is_implied(lit: Literal, flags: &mut LitIdxVec<Flags>, reason: &VarIdxVec<Option<Reason>>) -> bool {
         // If it's already been analyzed, reuse that info
-        let flags_lit = self.flags[lit];
+        let flags_lit = flags[lit];
         if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
             return flags_lit.is_set(Flag::IsImplied);
         }
 
-        match self.trail.valuation.get_reason(lit) {
+        match &reason[lit.var()] {
             // If it's a decision, there's no way it is implied
-            None        => return false,
-            Some(alias) => match alias.get_ref() {
+            &None            => return false,
+            &Some(ref alias) => match alias.get_ref() {
                 // will not happen either
                 None => panic!("The reason of {:?} was deleted but I still need it !"),
                 // will always happen
                 Some(cause) => {
                     for l in cause.iter().skip(1) {
-                        if !self.is_marked(*l) && !self.is_implied(*l) {
-                            self.flags[lit].set(Flag::IsNotImplied);
+                        if !flags[*l].is_set(Flag::IsMarked) && !Solver::is_implied(*l, flags, reason) {
+                            flags[lit].set(Flag::IsNotImplied);
                             return false;
                         }
                     }
-                    self.flags[lit].set(Flag::IsImplied);
+                    flags[lit].set(Flag::IsImplied);
                     return true;
                 }
             }
         }
-    }
-}
-
-// -----------------------------------------------------------------------------------------------
-/// # Valuation
-/// This struct encapsulates the idea of an assignment of Variables to Bool values.
-// -----------------------------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct VariableState {
-    pub value : Bool,
-    pub reason: Option<Reason>
-}
-
-impl VariableState {
-    pub fn default() -> VariableState {
-        VariableState{value: Bool::Undef, reason: None}
-    }
-}
-
-#[derive(Debug)]
-pub struct Valuation ( VarIdxVec<VariableState> );
-
-impl Valuation {
-
-    pub fn new(nb_vars: usize) -> Valuation {
-        let mut valuation= Valuation(VarIdxVec::with_capacity(nb_vars));
-        // initialize the items
-        for _ in 0..nb_vars {
-            valuation.0.push(VariableState::default() );
-        }
-        return valuation;
-    }
-
-    pub fn get_value(&self, l: Literal) -> Bool {
-        let value = self.0[l.var()].value;
-
-        match l.sign() {
-            Sign::Positive =>  value,
-            Sign::Negative => !value
-        }
-    }
-
-    pub fn get_reason(&self, l : Literal) -> Option<Reason> {
-        self.0[l.var()].reason.clone()
-    }
-
-    pub fn set_value(&mut self, l: Literal, value : Bool, reason: Option<Reason>) {
-        self.0[l.var()] = match l.sign() {
-            Sign::Positive => VariableState{value:  value, reason},
-            Sign::Negative => VariableState{value: !value, reason}
-        }
-    }
-
-    pub fn is_undef(&self, l: Literal) -> bool {
-        self.0[l.var()].value == Bool::Undef
-    }
-    pub fn is_true (&self, l: Literal) -> bool {
-        match l.sign() {
-            Sign::Positive => self.0[l.var()].value == Bool::True,
-            Sign::Negative => self.0[l.var()].value == Bool::False,
-        }
-    }
-    pub fn is_false(&self, l: Literal) -> bool {
-        match l.sign() {
-            Sign::Positive => self.0[l.var()].value == Bool::False,
-            Sign::Negative => self.0[l.var()].value == Bool::True,
-        }
-    }
-}
-
-impl Deref for Valuation {
-    type Target = VarIdxVec<VariableState>;
-
-    #[inline]
-    fn deref(&self) -> &VarIdxVec<VariableState> {
-        &self.0
-    }
-}
-
-impl DerefMut for Valuation {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut VarIdxVec<VariableState> {
-        &mut self.0
     }
 }
 
@@ -477,33 +422,17 @@ impl DerefMut for Valuation {
 // -----------------------------------------------------------------------------------------------
 #[derive(Debug)]
 pub struct Trail {
-    pub valuation  : Valuation,
     pub prop_queue : Vec<Literal>,
     pub forced     : usize,
     pub propagated : usize
 }
 
 impl Trail {
-    /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
-    /// in the Valuation and it enqueues the negation of the literal on the propagation queue
-    ///
-    /// # Note
-    /// We always push the *negation* of the assigned literal on the stack
-    pub fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
-        match self.valuation.get_value(lit) {
-            Bool::True  => Ok(()),
-            Bool::False => Err(()),
-            Bool::Undef => {
-                self.valuation.set_value(lit, Bool::True, reason);
-                self.prop_queue.push(!lit);
-                Ok(())
-            }
-        }
+
+    pub fn enqueue(&mut self, lit: Literal) {
+        self.prop_queue.push(!lit);
     }
 
-    pub fn is_decision(&self, lit : Literal) -> bool {
-        self.valuation[lit.var()].reason.is_none()
-    }
 }
 
 #[cfg(test)]
