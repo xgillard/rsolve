@@ -1,4 +1,3 @@
-use std::ops::*;
 use core::*;
 use collections::VarIdxVec;
 

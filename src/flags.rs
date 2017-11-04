@@ -54,6 +54,14 @@ impl Flags {
     pub fn one_of(&self, f1: Flag, f2: Flag) -> bool {
         self.0 & (f1 as u8 | f2 as u8) > 0
     }
+
+    #[inline]
+    pub fn to_u8(&self) -> u8 { self.0 }
+
+    #[inline]
+    pub fn from(v: u8) -> Flags {
+        Flags(v)
+    }
 }
 
 /// Permits the use of the | operator between some `Flags` and a `Flag` to yield a new `Flag`

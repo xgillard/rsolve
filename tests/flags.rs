@@ -1,5 +1,7 @@
 extern crate rsolve;
 
+use rsolve::flags::*;
+
 // set should turn some flag on
 #[test]
 fn set_should_turn_some_flag_on(){
@@ -121,46 +123,46 @@ fn one_of_should_tell_whether_some_flag_is_on(){
 // |   should yield
 #[test]
 fn pipe_op_should_yield(){
-    let x = Flags(0);
+    let x = Flags::from(0);
 
-    assert_eq!( (x | Flag::IsMarked).0 , (Flags(Flag::IsMarked as u8)).0 );
+    assert_eq!( (x | Flag::IsMarked).to_u8() , (Flags::from(Flag::IsMarked as u8)).to_u8() );
 }
 // |=  shoudl mutate
 #[test]
 fn pipe_eq_op_should_mutate(){
-    let mut x = Flags(0);
+    let mut x = Flags::from(0);
     x |= Flag::IsMarked;
 
-    assert_eq!( x.0 , (Flags(Flag::IsMarked as u8)).0 );
+    assert_eq!( x.to_u8() , (Flags::from(Flag::IsMarked as u8)).to_u8() );
 }
 // &   should yield
 #[test]
 fn and_op_should_yield(){
-    let x = Flags(Flag::IsMarked as u8);
-    assert_eq!( (x & Flag::IsMarked).0 , (Flags(Flag::IsMarked as u8)).0 );
+    let x = Flags::from(Flag::IsMarked as u8);
+    assert_eq!( (x & Flag::IsMarked).to_u8() , (Flags::from(Flag::IsMarked as u8)).to_u8() );
 
-    let x = Flags(Flag::IsImplied as u8);
-    assert_eq!( (x & Flag::IsMarked).0 , 0_u8 );
+    let x = Flags::from(Flag::IsImplied as u8);
+    assert_eq!( (x & Flag::IsMarked).to_u8() , 0_u8 );
 }
 // &=  should yield
 #[test]
 fn and_eq_op_should_mutate(){
-    let mut x = Flags(Flag::IsMarked as u8);
+    let mut x = Flags::from(Flag::IsMarked as u8);
 
     x &= Flag::IsMarked;
-    assert_eq!( x.0 , Flag::IsMarked as u8 );
+    assert_eq!( x.to_u8() , Flag::IsMarked as u8 );
 
     x &= Flag::IsImplied;
-    assert_eq!( x.0 , 0_u8 );
+    assert_eq!( x.to_u8() , 0_u8 );
 }
 // ^   should yield
 #[test]
 fn xor_op_should_yield(){
     let x = Flags::new();
-    assert_eq!( (x ^ Flag::IsMarked).0 , (Flags(Flag::IsMarked as u8)).0 );
+    assert_eq!( (x ^ Flag::IsMarked).to_u8() , (Flags::from(Flag::IsMarked as u8)).to_u8() );
 
-    let x = Flags(Flag::IsImplied as u8);
-    assert_eq!( (x ^ Flag::IsImplied).0 , 0_u8 );
+    let x = Flags::from(Flag::IsImplied as u8);
+    assert_eq!( (x ^ Flag::IsImplied).to_u8() , 0_u8 );
 }
 // ^=  should mutate
 #[test]
@@ -168,10 +170,10 @@ fn xor_eq_op_should_mutate(){
     let mut x = Flags::new();
 
     x ^= Flag::IsMarked;
-    assert_eq!( x.0 , Flag::IsMarked as u8 );
+    assert_eq!( x.to_u8() , Flag::IsMarked as u8 );
 
     x ^= Flag::IsMarked;
-    assert_eq!( x.0 , 0_u8 );
+    assert_eq!( x.to_u8() , 0_u8 );
 }
 
 // debug ?
