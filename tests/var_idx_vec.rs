@@ -1,3 +1,8 @@
+extern crate rsolve;
+
+use rsolve::core::*;
+use rsolve::collections::*;
+
 #[test]
 fn with_capacity_preallocates_memory(){
     let v = VarIdxVec::<u8>::with_capacity(5);

@@ -11,7 +11,7 @@ pub enum Bool { True, False, Undef }
 
 impl Bool {
     #[inline]
-    fn to_i8(&self) -> i8 {
+    pub fn to_i8(&self) -> i8 {
         match *self {
             Bool::True =>  1,
             Bool::False=> -1,

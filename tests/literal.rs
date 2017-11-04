@@ -1,3 +1,7 @@
+extern crate rsolve;
+
+use rsolve::core::*;
+
 #[test]
 #[should_panic]
 fn constructor_fails_for_zero(){
@@ -14,27 +18,27 @@ fn constructor_work_for_negative(){
 }
 #[test]
 fn constructor_work_for_var(){
-    assert_eq!("Literal(1)", format!("{:?}", Literal::from_var(Variable::from(1), Sign::Positive)));
-    assert_eq!("Literal(-1)", format!("{:?}", Literal::from_var(Variable::from(1), Sign::Negative)));
+    assert_eq!("Literal(1)", format!("{:?}", Literal::from_var(var(1), Sign::Positive)));
+    assert_eq!("Literal(-1)", format!("{:?}", Literal::from_var(var(1), Sign::Negative)));
 }
 #[test]
 fn positive_builds_positive_lit(){
-    assert_eq!("Literal(1)", format!("{:?}", Literal::positive(Variable::from(1))));
+    assert_eq!("Literal(1)", format!("{:?}", Literal::positive(var(1))));
 }
 #[test]
 fn negative_builds_negative_lit(){
-    assert_eq!("Literal(-1)", format!("{:?}", Literal::negative(Variable::from(1))));
+    assert_eq!("Literal(-1)", format!("{:?}", Literal::negative(var(1))));
 }
 #[test]
 fn var_returns_the_original_var(){
-    let v = Variable::from(42);
+    let v = var(42);
 
     assert_eq!(v, Literal::positive(v).var());
     assert_eq!(v, Literal::negative(v).var());
 }
 #[test]
 fn sign_is_positive_for_positive_lits(){
-    let v = Variable::from(42);
+    let v = var(42);
 
     if let Sign::Positive = Literal::positive(v).sign() {
         assert!(true);
@@ -44,7 +48,7 @@ fn sign_is_positive_for_positive_lits(){
 }
 #[test]
 fn sign_is_negative_for_negative_lits(){
-    let v = Variable::from(42);
+    let v = var(42);
 
     if let Sign::Negative = Literal::negative(v).sign() {
         assert!(true);
@@ -60,8 +64,8 @@ fn to_isize_should_return_raw_value() {
 #[test]
 fn test_equality() {
     let a = Literal::from(-1);
-    let b = Literal::negative(Variable::from(1));
-    let c = Literal::from_var(Variable::from(1), Sign::Negative);
+    let b = Literal::negative(var(1));
+    let c = Literal::from_var(var(1), Sign::Negative);
 
     // reflexive
     assert_eq!(a, a);
@@ -77,8 +81,8 @@ fn test_equality() {
 #[test]
 fn test_neg(){
     let a = Literal::from(-1);
-    let b = Literal::positive(Variable::from(1));
-    let c = Literal::from_var(Variable::from(1), Sign::Positive);
+    let b = Literal::positive(var(1));
+    let c = Literal::from_var(var(1), Sign::Positive);
 
     assert_eq!(a, --a);
     assert_eq!(a, -b);
@@ -87,8 +91,8 @@ fn test_neg(){
 #[test]
 fn test_not(){
     let a = Literal::from(-1);
-    let b = Literal::positive(Variable::from(1));
-    let c = Literal::from_var(Variable::from(1), Sign::Positive);
+    let b = Literal::positive(var(1));
+    let c = Literal::from_var(var(1), Sign::Positive);
 
     assert_eq!(a, !!a);
     assert_eq!(a, !b);
