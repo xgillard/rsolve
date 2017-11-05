@@ -37,20 +37,14 @@ impl Valuation {
     }
 
     pub fn is_undef(&self, l: Literal) -> bool {
-        self.0[l.var()] == Bool::Undef
+        self.get_value(l) == Bool::Undef
     }
 
     pub fn is_true (&self, l: Literal) -> bool {
-        match l.sign() {
-            Sign::Positive => self.0[l.var()] == Bool::True,
-            Sign::Negative => self.0[l.var()] == Bool::False,
-        }
+        self.get_value(l) == Bool::True
     }
 
     pub fn is_false(&self, l: Literal) -> bool {
-        match l.sign() {
-            Sign::Positive => self.0[l.var()] == Bool::False,
-            Sign::Negative => self.0[l.var()] == Bool::True,
-        }
+        self.get_value(l) == Bool::False
     }
 }
