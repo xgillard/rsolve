@@ -41,7 +41,7 @@ impl VariableOrdering {
         for i in 1..(capa+1) {
             ret.heap.push(Variable::from(i));
             ret.position.push(i);
-            ret.score.push(i);
+            ret.score.push(1);
         }
 
         return ret;
