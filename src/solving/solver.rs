@@ -251,6 +251,14 @@ impl Solver {
     // ---------------------------- CONFLICT RESOLUTION ------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+    /// This method analyzes the conflict to derive a new clause, add it to the database and
+    /// rolls back the assignment stack until the moment where the solver has reached a stable
+    /// and useful state (from which progress can be made).
+    ///
+    /// # Return Value
+    /// Ok  whenever the conflict could safely be resolved,
+    /// Err when the conflict could not be resolved (that is to say, when the problem is
+    ///     proven to be UNSAT
     fn resolve_conflict(&mut self, conflicting: &Clause) -> Result<(), ()> {
         let uip = self.find_first_uip(conflicting);
         let learned = self.build_conflict_clause(uip);
