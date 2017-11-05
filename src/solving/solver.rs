@@ -29,8 +29,12 @@ pub struct Solver {
     valuation   : Valuation,
     /// The constraints that are forced by the problem definition
     constraints : Vec<Aliasable<Clause>>,
+
+    // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The variable ordering heuristic (derivative of vsids)
     var_order   : VariableOrdering,
+    /// The partial valuation remembering the last phase of each variable
+    phase_saving: Valuation,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
@@ -70,7 +74,9 @@ impl Solver {
 
             valuation   : Valuation::new(nb_vars),
             constraints : vec![],
+
             var_order   : VariableOrdering::new(nb_vars as uint),
+            phase_saving: Valuation::new(nb_vars),
 
             watchers    : LitIdxVec::with_capacity(nb_vars),
             prop_queue  : Vec::with_capacity(nb_vars),
@@ -137,6 +143,10 @@ impl Solver {
             Bool::True  => Ok(()),
             Bool::False => Err(()),
             Bool::Undef => {
+                if reason.is_none() {
+                    self.nb_decisions += 1;
+                }
+
                 self.valuation.set_value(lit, Bool::True);
                 self.reason[lit.var()] = reason;
                 self.prop_queue.push(!lit);
@@ -419,7 +429,8 @@ impl Solver {
         // clear all flags
         self.flags[lit].reset();
 
-        // clear the value & reason
+        // clear the value & reason (and save the phase for later use)
+        self.phase_saving.set_value(lit, self.valuation.get_value(lit));
         self.valuation.set_value(lit, Bool::Undef);
         self.reason[lit.var()] = None;
 
@@ -1020,7 +1031,6 @@ mod tests {
         for i in 1..6 {
             let lit = lit(i);
             assert!(solver.assign(lit, None).is_ok());
-            solver.nb_decisions += 1; // technically, this should be a call to .decide()
 
             // TODO turn these to dedicated methods
             solver.flags[-lit].set(Flag::IsMarked);
@@ -1061,7 +1071,6 @@ mod tests {
         for i in 1..6 {
             let lit = lit(i);
             assert!(solver.assign(lit, None).is_ok());
-            solver.nb_decisions += 1; // technically, this should be a call to .decide()
 
             // TODO turn these to dedicated methods
             solver.flags[-lit].set(Flag::IsMarked);
@@ -1073,5 +1082,23 @@ mod tests {
         assert_eq!(5, solver.nb_decisions);
         solver.rollback(3);
         assert_eq!(3, solver.nb_decisions);
+    }
+
+    #[test]
+    fn rollback_saves_the_old_phase() {
+        let mut solver = Solver::new(5);
+
+        for i in 1..6 {
+            let lit = lit(i);
+            assert!(solver.assign(lit, None).is_ok());
+            assert_eq!(Bool::Undef, solver.phase_saving.get_value(lit));
+        }
+
+        solver.rollback(3);
+        for i in (4..6).rev() {
+            let l = lit(i);
+            assert_eq!(Bool::True , solver.phase_saving.get_value(l));
+            assert_eq!(Bool::False, solver.phase_saving.get_value(!l));
+        }
     }
 }
