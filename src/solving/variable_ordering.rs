@@ -34,7 +34,11 @@ impl VariableOrdering {
             position: VarIdxVec::with_capacity(capa as usize)
         };
 
-        for i in 1..(capa+2) {
+        // fill padding with a non-existing variable
+        ret.heap.push(Variable::from(capa+1));
+
+        // initialize the heap with true values !
+        for i in 1..(capa+1) {
             ret.heap.push(Variable::from(i));
             ret.position.push(i);
             ret.score.push(i);
