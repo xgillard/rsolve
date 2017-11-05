@@ -125,8 +125,8 @@ impl VariableOrdering {
         let var_scr = self.score[var];
 
         let mut kid_pos = self.max_child_of(var_pos);
-        let mut kid     = self.heap[kid_pos];
-        let mut kid_scr = self.score[kid];
+        let mut kid = self.heap[kid_pos]; // this might denote a non existing variable
+        let mut kid_scr = if kid_pos != 0 { self.score[kid] } else { 0 };
 
         while kid_pos != 0 && kid_scr > var_scr {
             self.heap[var_pos] = kid;
@@ -135,7 +135,7 @@ impl VariableOrdering {
             var_pos = kid_pos;
             kid_pos = self.max_child_of(var_pos);
             kid     = self.heap [kid_pos];
-            kid_scr = self.score[kid];
+            kid_scr = if kid_pos != 0 { self.score[kid] } else { 0 };
         }
 
         self.heap[var_pos] = var;
@@ -153,8 +153,8 @@ impl VariableOrdering {
         let var_scr = self.score   [var];
 
         let mut par_pos = var_pos >> 1;
-        let mut par     = self.heap [par_pos];
-        let mut par_scr = self.score[par    ];
+        let mut par= self.heap [par_pos];
+        let mut par_scr = if par_pos != 0 { self.score[par] } else { 0 };
 
         while par_pos > 0 && par_scr < var_scr {
             self.heap[var_pos] = par;
@@ -163,7 +163,7 @@ impl VariableOrdering {
             var_pos = par_pos;
             par_pos = par_pos >> 1;
             par     = self.heap [par_pos];
-            par_scr = self.score[par    ];
+            par_scr = if par_pos != 0 { self.score[par] } else { 0 };
         }
 
         self.heap[var_pos] = var;
