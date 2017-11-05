@@ -1,3 +1,4 @@
+// TODO: Pour rejoindre jsat, il faut encore restarter, supprimer des clauses restarter, solve et parser
 use std::clone::Clone;
 
 use utils::*;
@@ -127,6 +128,33 @@ impl Solver {
         for l in watched {
             self.watchers[l].push(self.learned.last().unwrap().alias());
         }
+    }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- SEARCH -------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
+    /// Returns the next literal to branch on. This method uses the variable ordering
+    /// heuristic (based on vsids) and the phase saving mechanism built-in the variables.
+    /// Whenever all variables have been assigned, this method returns None in order to mean
+    /// that no literal is available for branching.
+    fn decide(&mut self) -> Option<Literal> {
+
+        while !self.var_order.is_empty() {
+            let variable = self.var_order.pop_top();
+            let positive = Literal::from_var(variable, Sign::Positive);
+
+            if self.valuation.is_undef(positive) {
+                let saved = self.phase_saving.get_value(positive);
+                return match saved {
+                    Bool::True  => return Some(positive),
+                    Bool::False => return Some(!positive),
+                    Bool::Undef => return Some(!positive)
+                }
+            }
+        }
+
+        return None;
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -585,6 +613,112 @@ mod tests {
 
         assert!(solver.reason[var(1)].is_some());
         assert!(solver.reason[var(2)].is_none())
+    }
+
+
+    #[test]
+    fn decide_must_yield_all_unassigned_values(){
+        let mut solver = Solver::new(3);
+
+        solver.phase_saving.set_value(lit(1), Bool::True);
+        solver.phase_saving.set_value(lit(2), Bool::True);
+        solver.phase_saving.set_value(lit(3), Bool::True);
+
+        let mut decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(1), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(3), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(2), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_none());
+    }
+
+    #[test]
+    fn decide_must_skip_all_assigned_values(){
+        let mut solver = Solver::new(3);
+
+        assert!(solver.assign(lit(3), None).is_ok());
+        assert!(solver.assign(lit(1), None).is_ok());
+
+        let mut decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(-2), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_none());
+    }
+
+    #[test]
+    fn decide_must_yield_none_when_all_vars_are_assigned(){
+        let mut solver = Solver::new(3);
+
+        assert!(solver.assign(lit(3), None).is_ok());
+        assert!(solver.assign(lit(2), None).is_ok());
+        assert!(solver.assign(lit(1), None).is_ok());
+
+        assert!(solver.decide().is_none());
+    }
+
+    #[test]
+    fn decide_must_return_values_in_heuristic_order(){
+        let mut solver = Solver::new(3);
+
+        solver.phase_saving.set_value(lit(1), Bool::True);
+        solver.phase_saving.set_value(lit(2), Bool::True);
+        solver.phase_saving.set_value(lit(3), Bool::True);
+
+        solver.var_order.bump(var(3), 30);
+        solver.var_order.bump(var(2), 20);
+        solver.var_order.bump(var(1), 10);
+
+        let mut decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(3), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(2), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(1), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_none());
+    }
+
+    #[test]
+    fn decide_must_return_the_saved_polarity(){
+        let mut solver = Solver::new(3);
+        solver.var_order.bump(var(3), 30);
+        solver.var_order.bump(var(2), 20);
+        solver.var_order.bump(var(1), 10);
+
+        solver.phase_saving.set_value(lit(1), Bool::False);
+        solver.phase_saving.set_value(lit(2), Bool::True);
+        solver.phase_saving.set_value(lit(3), Bool::Undef);
+
+        let mut decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(-3), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(2), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_some());
+        assert_eq!(lit(-1), decision.unwrap());
+
+        decision = solver.decide();
+        assert!(decision.is_none());
     }
 
     #[test]
