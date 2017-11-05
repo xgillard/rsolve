@@ -204,8 +204,9 @@ impl Solver {
     }
 
     // -------------------------------------------------------------------------------------------//
-    // ---------------------------- CLAUSE LEARNING ----------------------------------------------//
+    // ---------------------------- CONFLICT RESOLUTION ------------------------------------------//
     // -------------------------------------------------------------------------------------------//
+
     fn resolve_conflict(&mut self, conflicting: &Clause) -> Result<(), ()> {
         let uip = self.find_first_uip(conflicting);
         let learned = self.build_conflict_clause(uip);
@@ -292,6 +293,71 @@ impl Solver {
         return cursor;
     }
 
+    /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
+    /// implication point (UIP). A position is an uip if:
+    /// - it is a decision.
+    /// - it is the last marked literal before a decision.
+    fn is_uip(&self, position: usize) -> bool {
+        let literal = self.prop_queue[position];
+
+        if self.is_decision(literal) {
+            return true;
+        }
+
+        if !self.flags[literal].is_set(Flag::IsMarked) {
+            return false;
+        }
+
+        for iter in (self.forced..position).rev() {
+            let iter_literal= self.prop_queue[iter];
+
+            if self.flags[iter_literal].is_set(Flag::IsMarked) {
+                return false;
+            }
+            if self.is_decision(iter_literal) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Returns true iff recursive analysis showed `lit` to be implied by other literals
+    ///
+    /// # Note
+    /// This function is implemented as an associated function in order to get over the complaints
+    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
+    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
+    /// the state are required to be muted.
+    ///
+    fn is_implied(lit: Literal, flags: &mut LitIdxVec<Flags>, reason: &VarIdxVec<Option<Reason>>) -> bool {
+        // If it's already been analyzed, reuse that info
+        let flags_lit = flags[lit];
+        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
+            return flags_lit.is_set(Flag::IsImplied);
+        }
+
+        match &reason[lit.var()] {
+            // If it's a decision, there's no way it is implied
+            &None            => return false,
+            &Some(ref alias) => match alias.get_ref() {
+                // will not happen either
+                None => panic!("The reason of {:?} was deleted but I still need it !"),
+                // will always happen
+                Some(cause) => {
+                    for l in cause.iter().skip(1) {
+                        if !flags[*l].is_set(Flag::IsMarked) && !Solver::is_implied(*l, flags, reason) {
+                            flags[lit].set(Flag::IsNotImplied);
+                            return false;
+                        }
+                    }
+                    flags[lit].set(Flag::IsImplied);
+                    return true;
+                }
+            }
+        }
+    }
+
     /// Returns the position (index in `prop_queue`) until which the solver should backtrack
     /// to continue searching while incorporating the knowledge gained with learned clause
     /// implying `uip`.
@@ -317,6 +383,10 @@ impl Solver {
 
         return backjump;
     }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- BACKTRACKING -------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
 
     /// Rolls back the search up to the given position.
     fn rollback(&mut self, until : usize) {
@@ -357,37 +427,23 @@ impl Solver {
         self.var_order.push_back(lit.var());
     }
 
-    /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
-    /// implication point (UIP). A position is an uip if:
-    /// - it is a decision.
-    /// - it is the last marked literal before a decision.
-    fn is_uip(&self, position: usize) -> bool {
-        let literal = self.prop_queue[position];
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- MISC ---------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
 
-        if self.is_decision(literal) {
-            return true;
-        }
-
-        if !self.flags[literal].is_set(Flag::IsMarked) {
-            return false;
-        }
-
-        for iter in (self.forced..position).rev() {
-            let iter_literal= self.prop_queue[iter];
-
-            if self.flags[iter_literal].is_set(Flag::IsMarked) {
-                return false;
-            }
-            if self.is_decision(iter_literal) {
-                return true;
-            }
-        }
-
-        return false;
+    fn is_decision(&self, lit : Literal) -> bool {
+        self.reason[lit.var()].is_none()
     }
 
     /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
     /// not been marked-bumped yet
+    ///
+    /// # Note
+    /// This function is implemented as an associated function in order to get over the complaints
+    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
+    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
+    /// the state are required to be muted.
+    ///
     fn mark_and_bump(lit : Literal, nb_conflicts: uint, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
@@ -395,38 +451,7 @@ impl Solver {
         }
     }
 
-    fn is_decision(&self, lit : Literal) -> bool {
-        self.reason[lit.var()].is_none()
-    }
 
-    /// returns true iff recursive analysis showed `lit` to be implied by other literals
-    fn is_implied(lit: Literal, flags: &mut LitIdxVec<Flags>, reason: &VarIdxVec<Option<Reason>>) -> bool {
-        // If it's already been analyzed, reuse that info
-        let flags_lit = flags[lit];
-        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
-            return flags_lit.is_set(Flag::IsImplied);
-        }
-
-        match &reason[lit.var()] {
-            // If it's a decision, there's no way it is implied
-            &None            => return false,
-            &Some(ref alias) => match alias.get_ref() {
-                // will not happen either
-                None => panic!("The reason of {:?} was deleted but I still need it !"),
-                // will always happen
-                Some(cause) => {
-                    for l in cause.iter().skip(1) {
-                        if !flags[*l].is_set(Flag::IsMarked) && !Solver::is_implied(*l, flags, reason) {
-                            flags[lit].set(Flag::IsNotImplied);
-                            return false;
-                        }
-                    }
-                    flags[lit].set(Flag::IsImplied);
-                    return true;
-                }
-            }
-        }
-    }
 }
 
 // -----------------------------------------------------------------------------------------------
