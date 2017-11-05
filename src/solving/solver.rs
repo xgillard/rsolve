@@ -143,8 +143,14 @@ impl Solver {
             Bool::True  => Ok(()),
             Bool::False => Err(()),
             Bool::Undef => {
+                // if its a decision, make sure to take that into account
                 if reason.is_none() {
                     self.nb_decisions += 1;
+                }
+
+                // if the solver is at root level, then assignment must follow from the problem
+                if self.nb_decisions == 0 {
+                    self.forced += 1;
                 }
 
                 self.valuation.set_value(lit, Bool::True);
@@ -471,6 +477,115 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assign_yields_ok_when_lit_is_undef(){
+        let mut solver = Solver::new(3);
+
+        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert!(solver.assign(lit(1), None).is_ok());
+    }
+
+    #[test]
+    fn assign_yields_ok_when_lit_is_true(){
+        let mut solver = Solver::new(3);
+
+        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert!(solver.assign(lit(1), None).is_ok());
+
+        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
+        assert!(solver.assign(lit(1), None).is_ok());
+    }
+
+    #[test]
+    fn assign_yields_err_when_lit_is_false(){
+        let mut solver = Solver::new(3);
+
+        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert!(solver.assign(lit(1), None).is_ok());
+
+        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
+        assert!(solver.assign(lit(-1), None).is_err());
+    }
+
+    #[test]
+    fn assign_enqueues_new_literl(){
+        let mut solver = Solver::new(3);
+
+        assert_eq!(0, solver.prop_queue.len());
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(1, solver.prop_queue.len());
+    }
+
+    #[test]
+    fn assign_does_not_enqueue_when_literal_is_already_on_queue(){
+        let mut solver = Solver::new(3);
+
+        assert_eq!(0, solver.prop_queue.len());
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(1, solver.prop_queue.len());
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(1, solver.prop_queue.len());
+    }
+
+    #[test]
+    fn assign_increases_nb_decisions_upon_new_decision() {
+        let mut solver = Solver::new(3);
+
+        assert_eq!(0, solver.nb_decisions);
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(1, solver.nb_decisions);
+    }
+    #[test]
+    fn assign_does_not_change_nb_decisions_upon_propagation() {
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![1, -2, -3]);
+
+        assert_eq!(0, solver.nb_decisions);
+        let reason = Some(solver.constraints.last().unwrap().alias());
+        assert!(solver.assign(lit(1), reason).is_ok());
+        assert_eq!(0, solver.nb_decisions);
+    }
+    #[test]
+    fn assign_increases_forced_when_at_root_level() {
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![1, -2, -3]);
+
+        assert_eq!(0, solver.forced);
+        let reason = Some(solver.constraints.last().unwrap().alias());
+        assert!(solver.assign(lit(1), reason).is_ok());
+        assert_eq!(1, solver.forced);
+    }
+    #[test]
+    fn assign_does_not_change_forced_when_not_at_root_level() {
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![1, -2, -3]);
+
+        assert_eq!(0, solver.forced);
+        assert!(solver.assign(lit(2), None).is_ok()); // decision changes the DL
+        let reason = Some(solver.constraints.last().unwrap().alias()); // DL > 0 so not at root
+        assert!(solver.assign(lit(1), reason).is_ok());
+        assert_eq!(0, solver.forced);
+    }
+
+    #[test]
+    fn assign_sets_the_value_and_reason() {
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![1, -2, -3]);
+
+        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(2)));
+
+        assert!(solver.assign(lit(2), None).is_ok()); // decision changes the DL
+        let reason = Some(solver.constraints.last().unwrap().alias()); // DL > 0 so not at root
+        assert!(solver.assign(lit(1), reason).is_ok());
+
+        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::True, solver.valuation.get_value(lit(2)));
+
+        assert!(solver.reason[var(1)].is_some());
+        assert!(solver.reason[var(2)].is_none())
+    }
 
     #[test]
     fn propagate_processes_everything_until_a_fixed_point_is_reached(){
