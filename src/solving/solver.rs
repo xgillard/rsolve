@@ -1,4 +1,4 @@
-// TODO: Pour rejoindre jsat, il faut encore restarter, supprimer des clauses restarter, solve et parser
+// TODO: Pour rejoindre jsat, il faut encore restarter, supprimer, solve et parser
 use std::clone::Clone;
 
 use utils::*;
@@ -19,74 +19,77 @@ type Reason  = Alias<Clause>;
 pub struct Solver {
     // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The number of decisions that have been taken (so far) during the search
-    nb_decisions: uint,
+    nb_decisions : uint,
     /// The number of conflicts that have occurred since the last restart
-    nb_conflicts: uint,
+    nb_conflicts : uint,
     /// The number of restarts that have occured since the very beginning
-    nb_restarts : usize,
+    nb_restarts  : usize,
 
     // ~~~ # Solver State ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The current assignment of boolean values to variables
-    valuation   : Valuation,
+    valuation    : Valuation,
     /// The constraints that are forced by the problem definition
-    constraints : Vec<Aliasable<Clause>>,
+    constraints  : Vec<Aliasable<Clause>>,
 
     // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The variable ordering heuristic (derivative of vsids)
-    var_order   : VariableOrdering,
+    var_order    : VariableOrdering,
     /// The partial valuation remembering the last phase of each variable
-    phase_saving: Valuation,
+    phase_saving : Valuation,
+    /// The restart strategt (luby)
+    restart_strat: LubyRestartStrategy,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
     /// _Important Notice_ : A clause should watch a literal it owns, not its negation !
-    watchers    : LitIdxVec<Vec<Watcher>>,
+    watchers     : LitIdxVec<Vec<Watcher>>,
     /// The trail of decisions and propagations that have been made so far
-    prop_queue  : Vec<Literal>,
+    prop_queue   : Vec<Literal>,
     /// The index up to which all assignments are _forced_. That is to say, these literals are
     /// directly follow from the problem definition.
     ///
     /// Note: `forced == i` means that all literals in `prop_queue` at an index _strictly_ smaller
     ///       than `i` are consequence of the definition. `prop_queue[forced]` is *not* itself a
     ///       consequence.
-    forced      : usize,
+    forced       : usize,
     /// The index up to which all assignments have been propagated.
     ///
     /// Note: `propagated == i` means that all literals in `prop_queue` at an index _strictly_
     ///       smaller than `i` have been propagated. `prop_queue[propagated]` denotes the next
     ///       assignment to propagate
-    propagated  : usize,
+    propagated   : usize,
 
     // ~~~ # Clause Learning ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The database of learned clauses
-    learned     : Vec<Aliasable<Clause>>,
+    learned      : Vec<Aliasable<Clause>>,
     /// The reason associated with each assignment
-    reason      : VarIdxVec<Option<Reason>>,
+    reason       : VarIdxVec<Option<Reason>>,
     /// The flags used during conflict analysis. One set of flag is associated with each literal.
-    flags       : LitIdxVec<Flags>
+    flags        : LitIdxVec<Flags>
 }
 
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
-            nb_decisions: 0,
-            nb_restarts : 0,
-            nb_conflicts: 0,
+            nb_decisions : 0,
+            nb_restarts  : 0,
+            nb_conflicts : 0,
 
-            valuation   : Valuation::new(nb_vars),
-            constraints : vec![],
+            valuation    : Valuation::new(nb_vars),
+            constraints  : vec![],
 
-            var_order   : VariableOrdering::new(nb_vars as uint),
-            phase_saving: Valuation::new(nb_vars),
+            var_order    : VariableOrdering::new(nb_vars as uint),
+            phase_saving : Valuation::new(nb_vars),
+            restart_strat: LubyRestartStrategy::new(6),
 
-            watchers    : LitIdxVec::with_capacity(nb_vars),
-            prop_queue  : Vec::with_capacity(nb_vars),
-            forced      : 0,
-            propagated  : 0,
+            watchers     : LitIdxVec::with_capacity(nb_vars),
+            prop_queue   : Vec::with_capacity(nb_vars),
+            forced       : 0,
+            propagated   : 0,
 
-            learned     : vec![],
-            reason      : VarIdxVec::with_capacity(nb_vars),
-            flags       : LitIdxVec::with_capacity(nb_vars)
+            learned      : vec![],
+            reason       : VarIdxVec::with_capacity(nb_vars),
+            flags        : LitIdxVec::with_capacity(nb_vars)
         };
 
         // initialize vectors
@@ -434,6 +437,18 @@ impl Solver {
         }
 
         return backjump;
+    }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- RESTART ------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+    fn restart(&mut self) {
+        let forced = self.forced;
+        self.rollback(forced);
+
+        self.restart_strat.set_next_limit();
+        self.nb_restarts += 1;
+        self.nb_conflicts = 0;
     }
 
     // -------------------------------------------------------------------------------------------//
