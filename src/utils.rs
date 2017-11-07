@@ -68,6 +68,18 @@ impl<T> Alias<T> {
             Some(cell) => Some(unsafe { &* cell.get() })
         }
     }
+
+    /// Returns true if the two aliases reference the same object
+    pub fn ptr_eq(this: &Alias<T>, that: &Alias<T>) -> bool {
+        let me = this.0.upgrade();
+        let him = that.0.upgrade();
+
+        if me.is_none() && him.is_none() {
+            return true;
+        } else {
+            return Rc::ptr_eq(&me.unwrap(), &him.unwrap());
+        }
+    }
 }
 
 impl<T> Debug for Alias<T> where T : Debug {
@@ -147,5 +159,42 @@ mod test_aliases {
 
         assert_eq!("Alias(None)", format!("{:?}", a_1));
         assert_eq!("None",        format!("{:?}", a_1.get_ref()));
+    }
+
+    #[test]
+    fn ptr_eq_should_be_true_when_aliases_denote_the_same_thing(){
+        let val = Aliasable::new(10);
+        let x = val.alias();
+        let y = val.alias();
+
+        assert!(Alias::ptr_eq(&x, &y));
+    }
+
+    #[test]
+    fn ptr_eq_should_be_false_when_aliases_denote_different_things(){
+        let v1 = Aliasable::new(10);
+        let v2 = Aliasable::new(10);
+        let x = v1.alias();
+        let y = v2.alias();
+
+        assert!(!Alias::ptr_eq(&x, &y));
+    }
+
+    #[test]
+    fn ptr_eq_should_be_true_when_aliases_are_dangling(){
+        let val1 = Aliasable::new(10);
+        let val2 = Aliasable::new(10);
+        let mut x = val1.alias();
+        let mut y = val2.alias();
+
+        {
+            let v1 = Aliasable::new(10);
+            let v2 = Aliasable::new(10);
+
+            x = v1.alias();
+            y = v2.alias();
+        }
+
+        assert!(Alias::ptr_eq(&x, &y));
     }
 }
