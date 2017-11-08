@@ -23,7 +23,7 @@ pub struct Solver {
     /// The number of decisions that have been taken (so far) during the search
     nb_decisions : uint,
     /// The number of conflicts that have occurred since the last restart
-    nb_conflicts : uint,
+    nb_conflicts : usize,
     /// The number of restarts that have occured since the very beginning
     nb_restarts  : usize,
 
@@ -40,6 +40,8 @@ pub struct Solver {
     phase_saving : Valuation,
     /// The restart strategt (luby)
     restart_strat: LubyRestartStrategy,
+    /// The number of clauses that can be learned before we start to try cleaning up the database
+    max_learned  : usize,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
@@ -83,6 +85,7 @@ impl Solver {
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
             restart_strat: LubyRestartStrategy::new(6),
+            max_learned  : 1000,
 
             watchers     : LitIdxVec::with_capacity(nb_vars),
             prop_queue   : Vec::with_capacity(nb_vars),
@@ -120,24 +123,48 @@ impl Solver {
         }
     }
 
-    fn add_learned_clause(&mut self, c :Vec<Literal>) {
-        let watched: Vec<Literal> = c.iter()
-            .take(2)
-            .map(|l| *l)
-            .collect();
-
-        let clause = Aliasable::new(Clause::from(c));
-
-        self.learned.push( clause);
-
-        for l in watched {
-            self.watchers[l].push(self.learned.last().unwrap().alias());
-        }
-    }
-
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- SEARCH -------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
+
+	/// This is the core method of the solver, it determines the satisfiability of the
+	/// problem through a CDCL based solving.
+	///
+	/// # Return Value
+	/// true if there exist an assignment satisfying the given cnf problem.
+	/// false if there exists no such assignment.
+	///
+    pub fn solve(&mut self) -> bool {
+        loop {
+            match self.propagate() {
+                Some(conflict) => {
+                    self.nb_conflicts += 1;
+                    let clause = conflict.get_mut().unwrap();
+
+                    // if there is a conflict, I try to resolve it. But if I can't, that
+                    // means that the problem is UNSAT
+                    if self.resolve_conflict(&clause).is_err() {
+                        return false;
+                    }
+
+                    if self.restart_strat.is_restart_required(self.nb_conflicts) {
+                        self.restart();
+                    }
+
+                    if self.learned.len() > self.max_learned {
+                        self.reduce_db();
+                        self.max_learned = (self.max_learned * 3) / 2;
+                    }
+                },
+                None => {
+                    match self.decide() {
+                        None      => return true,
+                        Some(lit) => self.assign(lit, None).ok()
+                    };
+                }
+            }
+        }
+    }
 
     /// Returns the next literal to branch on. This method uses the variable ordering
     /// heuristic (based on vsids) and the phase saving mechanism built-in the variables.
@@ -151,7 +178,7 @@ impl Solver {
 
             if self.valuation.is_undef(positive) {
                 let saved = self.phase_saving.get_value(positive);
-                return match saved {
+                match saved {
                     Bool::True  => return Some(positive),
                     Bool::False => return Some(!positive),
                     Bool::Undef => return Some(!positive)
@@ -277,6 +304,21 @@ impl Solver {
         let learned = alias.get_ref().unwrap();
         let asserting_lit = learned[0];
         return self.assign(asserting_lit, Some(alias.clone()));
+    }
+
+    fn add_learned_clause(&mut self, c :Vec<Literal>) {
+        let watched: Vec<Literal> = c.iter()
+            .take(2)
+            .map(|l| *l)
+            .collect();
+
+        let clause = Aliasable::new(Clause::from(c));
+
+        self.learned.push( clause);
+
+        for l in watched {
+            self.watchers[l].push(self.learned.last().unwrap().alias());
+        }
     }
 
 	/// This method builds a and returns minimized conflict clause by walking the marked literals
@@ -459,15 +501,19 @@ impl Solver {
         // reduces the size of the database by removing half of the worst clauses.
         // It should be noted though that unary and binary clauses are *never* removed
         // and that 'locked' clauses (those who are reason for some assignment) are kept as well
-        let mut limit = self.learned.len() / 2;
+        let mut counter = 0;
+        let limit = self.learned.len() / 2;
         for i in (0..self.learned.len()).rev() {
             let alias = self.learned[i].alias();
             let clause = alias.get_mut().unwrap();
 
+            if counter >= limit       { break;    }
             if clause.len() <= 2      { continue; }
             if self.is_locked(&alias) { continue; }
 
+
             self.learned.swap_remove(i);
+            counter+= 1;
         }
     }
 
@@ -579,10 +625,10 @@ impl Solver {
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
     ///
-    fn mark_and_bump(lit : Literal, nb_conflicts: uint, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
+    fn mark_and_bump(lit : Literal, nb_conflicts: usize, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
-            var_order.bump(lit.var(), nb_conflicts);
+            var_order.bump(lit.var(), nb_conflicts as uint);
         }
     }
 
@@ -1439,5 +1485,83 @@ mod tests {
             assert_eq!(Bool::True , solver.phase_saving.get_value(l));
             assert_eq!(Bool::False, solver.phase_saving.get_value(!l));
         }
+    }
+
+
+    #[test]
+    fn solve_must_be_true_when_problem_is_vacuously_satisfiable(){
+        let mut solver = Solver::new(5);
+
+        assert!(solver.solve());
+    }
+
+    #[test]
+    fn solve_must_be_true_when_problem_is_trivially_satisfiable(){
+        let mut solver = Solver::new(5);
+        solver.add_problem_clause(vec![1, 2, 3, 4, 5]);
+        assert!(solver.solve());
+    }
+
+    #[test]
+    fn solve_must_be_true_when_problem_is_satisfiable_not_trivially(){
+        /*-
+         * 1 -----------------+ 5
+         *   \               /
+         *    \             /
+         *     \           /
+         * 2 ---\------ 3 +
+         *       \         \
+         *        \         \
+         *         \         \
+         *          4 -------+ -5
+         */
+        let mut solver = Solver::new(5);
+
+        solver.add_problem_clause(vec![1, -4]);
+        solver.add_problem_clause(vec![2, -3]);
+
+        solver.add_problem_clause(vec![3, 4, 5]);
+        solver.add_problem_clause(vec![3, 1,-5]);
+
+        solver.var_order.bump(var(1), 10);
+        solver.var_order.bump(var(2),  5);
+
+        assert!(solver.solve());
+        assert_eq!(solver.nb_conflicts, 1);
+    }
+
+    #[test]
+    fn solve_must_be_false_when_problem_is_explicitly_unsat(){
+        let mut solver = Solver::new(5);
+        solver.add_problem_clause(vec![]);
+        assert!(!solver.solve());
+    }
+
+    #[test]
+    fn solve_must_be_false_when_problem_is_trivially_unsat(){
+        let mut solver = Solver::new(5);
+        solver.add_problem_clause(vec![1, 2]);
+        solver.add_problem_clause(vec![-1]);
+        solver.add_problem_clause(vec![-2]);
+        assert!(!solver.solve());
+    }
+
+    #[test]
+    fn solve_must_be_false_when_problem_is_not_trivially_unsat(){
+        let mut solver = Solver::new(6);
+        solver.add_problem_clause(vec![ 3, 1]);
+        solver.add_problem_clause(vec![-1, 4]);
+        solver.add_problem_clause(vec![-1,-4]);
+
+        solver.add_problem_clause(vec![ 5, 2]);
+        solver.add_problem_clause(vec![-2, 6]);
+        solver.add_problem_clause(vec![-2,-6]);
+
+        solver.add_problem_clause(vec![ 1, 2]);
+
+        solver.var_order.bump(var(3), 10);
+        solver.var_order.bump(var(5),  5);
+
+        assert!(!solver.solve());
     }
 }
