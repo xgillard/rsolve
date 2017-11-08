@@ -554,10 +554,12 @@ impl Solver {
             let alias = self.learned[i].alias();
             let clause = alias.get_mut().unwrap();
 
-            if counter >= limit       { break;    }
-            if clause.len() <= 2      { continue; }
-            if self.is_locked(&alias) { continue; }
+            if counter >= limit        { break;    }
+            if clause.len() <= 2       { continue; }
+            if self.is_locked(&alias)  { continue; }
 
+            // if the clause is unit or almost, *don't* remove it !
+            if clause.get_score() <= 2 { break;    }
 
             self.learned.swap_remove(i);
             counter+= 1;
