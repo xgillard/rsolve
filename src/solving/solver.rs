@@ -1,4 +1,6 @@
-// TODO: Pour rejoindre jsat, il faut encore restarter, supprimer, solve et parser
+// TODO: Pour rejoindre jsat, il faut solve et parse
+
+// TODO: test nb_unassigned(), is_locked() et reduce_db()
 use std::clone::Clone;
 
 use utils::*;
@@ -437,6 +439,71 @@ impl Solver {
         }
 
         return backjump;
+    }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- CLAUSE DATABASE REDUCTION ------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+    fn reduce_db(&mut self) {
+        // reset all heuristic quality scores
+        for c in &self.learned {
+            let alias = c.alias();
+            let clause = alias.get_mut().unwrap();
+
+            clause.set_score(self.nb_unassigned(&alias));
+        }
+
+        // sort the clauses according to their heuristic quality score
+        self.learned.sort_unstable_by_key(|c| c.alias().get_ref().unwrap().get_score());
+
+        // reduces the size of the database by removing half of the worst clauses.
+        // It should be noted though that unary and binary clauses are *never* removed
+        // and that 'locked' clauses (those who are reason for some assignment) are kept as well
+        let mut limit = self.learned.len() / 2;
+        for i in (0..self.learned.len()).rev() {
+            let alias = self.learned[i].alias();
+            let clause = alias.get_mut().unwrap();
+
+            if clause.len() <= 2      { continue; }
+            if self.is_locked(&alias) { continue; }
+
+            self.learned.swap_remove(i);
+        }
+    }
+
+    /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
+    /// in the current assignment
+    fn is_locked(&self, alias: &Alias<Clause>) -> bool {
+        let clause = alias.get_ref().unwrap();
+
+        if clause.len() < 2 { return true; }
+
+        let lit = clause[0];
+        if self.valuation.is_undef(lit) {
+            return false;
+        } else {
+            let reason = &self.reason[lit.var()];
+
+            return match *reason {
+                None        => false,
+                Some(ref x) => Alias::ptr_eq(alias, x)
+            }
+        }
+    }
+
+    /// This metric counts the number of unassigned literals in the given clause.
+    // TODO: essayer avec le psm() plutot que le unassigned count
+    fn nb_unassigned(&self, alias: &Alias<Clause>) -> usize {
+        let clause = alias.get_ref().unwrap();
+        let mut counter = 0;
+
+        for lit in clause.iter() {
+            if self.valuation.is_undef(*lit) {
+                counter += 1;
+            }
+        }
+
+        return counter;
     }
 
     // -------------------------------------------------------------------------------------------//

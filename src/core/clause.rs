@@ -1,4 +1,5 @@
 use std::ops::*;
+use std::fmt;
 use super::*;
 
 // -----------------------------------------------------------------------------------------------
@@ -28,13 +29,19 @@ use super::*;
 /// In other word, we dont care if the order of the literals changes as long as we have a
 ///
 // -----------------------------------------------------------------------------------------------
-#[derive(Debug, Clone)]
-pub struct Clause(Vec<Literal>);
+#[derive(Clone)]
+pub struct Clause {
+    /// This is the actual set of literals composing the clause
+    literals: Vec<Literal>,
+    /// This is an heuristic 'quality' score associated with each of the clauses which is used
+    /// by the solver's clause management (removal) strategy
+    score: usize
+}
 
 impl Clause {
     /// Creates a new clause from its terms
     pub fn new(terms: Vec<Literal>) -> Clause {
-        Clause(terms)
+        Clause{ literals: terms, score : 0 }
     }
 
     /// Tries to find a new literal that can be watched by the given clause.
@@ -48,7 +55,7 @@ impl Clause {
     ///           Unassigned, then the clause is unit. Otherwise, the clause is conflicting and a
     ///           conflict resolution procedure should be started
     pub fn find_new_literal(&mut self, watched:Literal, valuation:&Valuation) -> Result<Literal, Literal> {
-        let mut literals = &mut self.0;
+        let mut literals = &mut self.literals;
 
         // Make sure that other WL is at position zero. This way, whenever the clause
         // becomes unit, we are certain to respect invariant B.
@@ -73,17 +80,26 @@ impl Clause {
         // the current assignment) or conflicting.
         return Err(literals[0]);
     }
+
+    /// Returns the heuristic 'quality' score associated with this clause
+    pub fn get_score(&self) -> usize {
+        self.score
+    }
+    /// Changes the heuristic 'quality' score associated with this clause
+    pub fn set_score(&mut self, score: usize) {
+        self.score = score;
+    }
 }
 
 impl From<Vec<iint>> for Clause {
     fn from(v : Vec<iint> ) -> Clause {
-        Clause(v.iter().map(|l| Literal::from(*l)).collect())
+        Clause::new(v.iter().map(|l| Literal::from(*l)).collect())
     }
 }
 
 impl From<Vec<Literal>> for Clause {
     fn from(v : Vec<Literal> ) -> Clause {
-        Clause(v)
+        Clause::new(v)
     }
 }
 
@@ -92,13 +108,19 @@ impl Deref for Clause {
 
     #[inline]
     fn deref(&self) -> &Vec<Literal>{
-        &self.0
+        &self.literals
     }
 }
 impl DerefMut for Clause{
     #[inline]
     fn deref_mut(&mut self) -> &mut Vec<Literal>{
-        &mut self.0
+        &mut self.literals
+    }
+}
+
+impl fmt::Debug for Clause {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Clause({:?})", self.literals )
     }
 }
 
