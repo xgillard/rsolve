@@ -1,5 +1,3 @@
-// TODO: Pour rejoindre jsat, il faut solve et parse
-
 // TODO: test nb_unassigned(), is_locked() et reduce_db()
 use std::clone::Clone;
 
