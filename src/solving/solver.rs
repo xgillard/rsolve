@@ -32,6 +32,11 @@ pub struct Solver {
     valuation    : Valuation,
     /// The constraints that are forced by the problem definition
     constraints  : Vec<Aliasable<Clause>>,
+    /// A flag telling whether or not the solver was detected to be unsat.
+    /// This flag must be set while adding clauses to the problem and during conflict resolution
+    /// Whenever the flag `is_unsat` is being turned on, it becomes pointless to continue using
+    /// the solver as it will always answer the same result.
+    is_unsat     : bool,
 
     // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The variable ordering heuristic (derivative of vsids)
@@ -81,6 +86,7 @@ impl Solver {
 
             valuation    : Valuation::new(nb_vars),
             constraints  : vec![],
+            is_unsat     : false,
 
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
@@ -109,6 +115,8 @@ impl Solver {
 
     // TODO: rename post constraint ?
     pub fn add_problem_clause(&mut self, c :Vec<iint>) {
+        let clause_size = c.len();
+
         let watched: Vec<Literal> = c.iter()
                                      .take(2)
                                      .map(|l|Literal::from(*l))
@@ -118,8 +126,23 @@ impl Solver {
 
         self.constraints.push( clause);
 
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause_size == 0 {
+            self.is_unsat = true;
+            return;
+        }
+
+        let alias = self.constraints.last().unwrap().alias();
+        let target = alias.get_mut().unwrap();
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause_size == 1 {
+            self.is_unsat |= self.assign(target[0], Some(alias.clone())).is_err();
+            return;
+        }
+
         for l in watched {
-            self.watchers[l].push(self.constraints.last().unwrap().alias());
+            self.watchers[l].push(alias.clone());
         }
     }
 
@@ -136,6 +159,8 @@ impl Solver {
 	///
     pub fn solve(&mut self) -> bool {
         loop {
+            if self.is_unsat { return false; }
+
             match self.propagate() {
                 Some(conflict) => {
                     self.nb_conflicts += 1;
@@ -144,6 +169,7 @@ impl Solver {
                     // if there is a conflict, I try to resolve it. But if I can't, that
                     // means that the problem is UNSAT
                     if self.resolve_conflict(&clause).is_err() {
+                        self.is_unsat = true;
                         return false;
                     }
 
@@ -299,6 +325,7 @@ impl Solver {
         self.rollback(backjump);
 
         self.add_learned_clause(learned);
+        if self.is_unsat { return Err(()); }
 
         let alias = self.learned.last().unwrap().alias();
         let learned = alias.get_ref().unwrap();
@@ -307,6 +334,8 @@ impl Solver {
     }
 
     fn add_learned_clause(&mut self, c :Vec<Literal>) {
+        let clause_size = c.len();
+
         let watched: Vec<Literal> = c.iter()
             .take(2)
             .map(|l| *l)
@@ -316,8 +345,23 @@ impl Solver {
 
         self.learned.push( clause);
 
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause_size == 0 {
+            self.is_unsat = true;
+            return;
+        }
+
+        let alias = self.learned.last().unwrap().alias();
+        let target = alias.get_mut().unwrap();
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause_size == 1 {
+            self.is_unsat |= self.assign(target[0], Some(alias.clone())).is_err();
+            return;
+        }
+
         for l in watched {
-            self.watchers[l].push(self.learned.last().unwrap().alias());
+            self.watchers[l].push(alias.clone());
         }
     }
 
@@ -1534,7 +1578,9 @@ mod tests {
     fn solve_must_be_false_when_problem_is_explicitly_unsat(){
         let mut solver = Solver::new(5);
         solver.add_problem_clause(vec![]);
-        assert!(!solver.solve());
+
+        let satisfiable = solver.solve();
+        assert!(!satisfiable);
     }
 
     #[test]

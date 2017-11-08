@@ -181,6 +181,7 @@ mod test_aliases {
     }
 
     #[test]
+    #[allow(unused_assignments)]
     fn ptr_eq_should_be_true_when_aliases_are_dangling(){
         let val1 = Aliasable::new(10);
         let val2 = Aliasable::new(10);
