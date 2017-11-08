@@ -3,7 +3,7 @@
 // TODO: test nb_unassigned(), is_locked() et reduce_db()
 use std::clone::Clone;
 
-use utils::*;
+use aliasing::*;
 use core::*;
 use collections::*;
 use solving::*;

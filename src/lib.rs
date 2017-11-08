@@ -1,6 +1,6 @@
 
 mod core;
-mod utils;
+mod aliasing;
 mod collections;
 mod solving;
 
@@ -8,4 +8,4 @@ mod solving;
 pub use self::core::*;
 pub use self::collections::*;
 pub use self::solving::*;
-pub use self::utils::*;
+pub use self::aliasing::*;
