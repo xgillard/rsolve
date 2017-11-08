@@ -25,4 +25,8 @@ fn main() {
     } else {
         println!("s UNSATISFIABLE");
     }
+
+    println!("c nb_conflicts {}", solver.nb_conflicts);
+    println!("c nb_restarts  {}", solver.nb_restarts);
+
 }

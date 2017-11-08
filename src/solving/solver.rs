@@ -19,11 +19,13 @@ type Reason  = Alias<Clause>;
 pub struct Solver {
     // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The number of decisions that have been taken (so far) during the search
-    nb_decisions : uint,
+    pub nb_decisions : uint,
     /// The number of conflicts that have occurred since the last restart
-    nb_conflicts : usize,
+    pub nb_conflicts_since_restart: usize,
+    /// The total number of conflicts that have occurred
+    pub nb_conflicts: usize,
     /// The number of restarts that have occured since the very beginning
-    nb_restarts  : usize,
+    pub nb_restarts  : usize,
 
     // ~~~ # Solver State ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The current assignment of boolean values to variables
@@ -80,7 +82,8 @@ impl Solver {
         let mut solver = Solver {
             nb_decisions : 0,
             nb_restarts  : 0,
-            nb_conflicts : 0,
+            nb_conflicts_since_restart: 0,
+            nb_conflicts: 0,
 
             valuation    : Valuation::new(nb_vars),
             constraints  : vec![],
@@ -161,7 +164,9 @@ impl Solver {
 
             match self.propagate() {
                 Some(conflict) => {
+                    self.nb_conflicts_since_restart += 1;
                     self.nb_conflicts += 1;
+
                     let clause = conflict.get_mut().unwrap();
 
                     // if there is a conflict, I try to resolve it. But if I can't, that
@@ -171,7 +176,7 @@ impl Solver {
                         return false;
                     }
 
-                    if self.restart_strat.is_restart_required(self.nb_conflicts) {
+                    if self.restart_strat.is_restart_required(self.nb_conflicts_since_restart) {
                         self.restart();
                     }
 
@@ -392,7 +397,7 @@ impl Solver {
     fn find_first_uip(&mut self, conflicting: &Clause) -> usize {
         // mark all literals in the conflict clause
         for l in conflicting.iter() {
-            Solver::mark_and_bump(*l, self.nb_conflicts, &mut self.flags, &mut self.var_order);
+            Solver::mark_and_bump(*l, self.nb_conflicts_since_restart, &mut self.flags, &mut self.var_order);
         }
 
         // backwards BFS rooted at the conflict to identify uip (and mark its cause)
@@ -424,7 +429,7 @@ impl Solver {
                     // will always happen
                     Some(cause) => {
                         for l in cause.iter().skip(1) {
-                            Solver::mark_and_bump(*l, self.nb_conflicts, &mut self.flags, &mut self.var_order);
+                            Solver::mark_and_bump(*l, self.nb_conflicts_since_restart, &mut self.flags, &mut self.var_order);
                         }
                     }
                 }
@@ -603,7 +608,7 @@ impl Solver {
 
         self.restart_strat.set_next_limit();
         self.nb_restarts += 1;
-        self.nb_conflicts = 0;
+        self.nb_conflicts_since_restart = 0;
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -1569,7 +1574,7 @@ mod tests {
         solver.var_order.bump(var(2),  5);
 
         assert!(solver.solve());
-        assert_eq!(solver.nb_conflicts, 1);
+        assert_eq!(solver.nb_conflicts_since_restart, 1);
     }
 
     #[test]
