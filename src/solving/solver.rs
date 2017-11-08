@@ -1,4 +1,4 @@
-// TODO: test nb_unassigned(), is_locked() et reduce_db()
+// TODO: test reduce_db()
 use std::clone::Clone;
 
 use aliasing::*;
@@ -1614,5 +1614,79 @@ mod tests {
         solver.var_order.bump(var(5),  5);
 
         assert!(!solver.solve());
+    }
+
+    #[test]
+    fn nb_unassigned_must_return_the_number_of_unassigned_literals_in_a_clause(){
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![1, 2, 3]);
+
+        let clause = get_last_constraint(&solver);
+
+        assert_eq!(3, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(2, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(2), None).is_ok());
+        assert_eq!(1, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(3), None).is_ok());
+        assert_eq!(0, solver.nb_unassigned(&clause));
+    }
+
+    #[test]
+    fn nb_unassigned_must_return_the_number_of_unassigned_literals_in_a_clause_taking_negation_into_account(){
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![-1,-2,-3]);
+
+        let clause = get_last_constraint(&solver);
+
+        assert_eq!(3, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(1), None).is_ok());
+        assert_eq!(2, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(2), None).is_ok());
+        assert_eq!(1, solver.nb_unassigned(&clause));
+
+        assert!(solver.assign(lit(3), None).is_ok());
+        assert_eq!(0, solver.nb_unassigned(&clause));
+    }
+
+    #[test]
+    fn is_locked_must_be_false_when_the_clause_is_not_the_reason_of_any_assignment(){
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![-1,-2,-3]);
+
+        let clause = get_last_constraint(&solver);
+        assert_eq!(false, solver.is_locked(&clause));
+    }
+
+    #[test]
+    fn is_locked_must_be_true_when_the_clause_is_the_reason_of_some_assignment(){
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![-1,-2,-3]);
+
+        let clause = get_last_constraint(&solver);
+        assert!(solver.assign(lit(-1), Some(clause.clone())).is_ok());
+        assert_eq!(true, solver.is_locked(&clause));
+    }
+
+    #[test]
+    fn is_locked_must_false_after_the_reason_has_been_reset(){
+        let mut solver = Solver::new(3);
+        solver.add_problem_clause(vec![-1,-2,-3]);
+
+        let clause = get_last_constraint(&solver);
+        assert!(solver.assign(lit(-1), Some(clause.clone())).is_ok());
+        assert_eq!(true, solver.is_locked(&clause));
+        solver.rollback(0);
+        assert_eq!(false, solver.is_locked(&clause));
+    }
+
+    fn get_last_constraint(solver : &Solver) -> Alias<Clause> {
+        let clause = solver.constraints.last().unwrap();
+        return clause.alias();
     }
 }

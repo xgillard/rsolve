@@ -3,7 +3,7 @@ extern crate rsolve;
 use std::io::*;
 use rsolve::*;
 
-// TODO: Solver.rs -> test nb_unassigned(), is_locked() et reduce_db()
+// TODO: Solver.rs -> test reduce_db()
 // TODO: dimacs.rs -> *
 // TODO: etre plus intelligent (LRB, inprocessing, partial restarts)
 // TODO: supporter plus d'options DRUP, print_model
