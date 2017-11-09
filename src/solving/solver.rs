@@ -176,13 +176,13 @@ impl Solver {
                         return false;
                     }
 
-                    if self.restart_strat.is_restart_required(self.nb_conflicts_since_restart) {
-                        self.restart();
-                    }
-
                     if self.learned.len() > self.max_learned {
                         self.reduce_db();
                         self.max_learned = (self.max_learned * 3) / 2;
+                    }
+
+                    if self.restart_strat.is_restart_required(self.nb_conflicts_since_restart) {
+                        self.restart();
                     }
                 },
                 None => {
