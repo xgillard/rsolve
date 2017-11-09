@@ -24,12 +24,12 @@ fn main() {
 }
 
 fn print_header() {
-    println!("c *************************************************************************");
+    println!("c ******************************************************************************");
     println!("c This is the `rsolve` SAT solver version 0.1.0");
-    println!("c -------------------------------------------------------------------------");
-    println!("c Copyright 2017 Xavier Gillard, Université Catholique de Louvain");
+    println!("c ------------------------------------------------------------------------------");
+    println!("c Copyright 2017 Xavier Gillard, LVL -- Université Catholique de Louvain (BE)");
     println!("c This software is licensed to you under the terms of the MIT license");
-    println!("c =========================================================================");
+    println!("c ==============================================================================");
 }
 
 fn print_result(solver: &Solver, satisfiable: bool){
@@ -38,8 +38,8 @@ fn print_result(solver: &Solver, satisfiable: bool){
     } else {
         println!("s UNSATISFIABLE");
     }
-    println!("c -------------------------------------------------------------------------");
+    println!("c ------------------------------------------------------------------------------");
     println!("c nb_conflicts {}", solver.nb_conflicts);
     println!("c nb_restarts  {}", solver.nb_restarts);
-    println!("c *************************************************************************");
+    println!("c ******************************************************************************");
 }
