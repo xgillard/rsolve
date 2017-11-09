@@ -1580,8 +1580,25 @@ mod tests {
     }
 
     #[test]
-    fn solve_must_be_false_when_problem_is_explicitly_unsat(){
+    fn solve_must_be_true_when_problem_is_vacuously_true(){
+        let mut solver = Solver::new(0);
+        let satisfiable = solver.solve();
+        assert!(satisfiable);
+    }
+
+    #[test]
+    fn solve_must_be_false_when_problem_is_explicitly_unsat_empty_problem(){
+        let mut solver = Solver::new(0);
+        solver.add_problem_clause(vec![]);
+
+        let satisfiable = solver.solve();
+        assert!(!satisfiable);
+    }
+
+    #[test]
+    fn solve_must_be_false_when_problem_is_explicitly_unsat_nonempty_problem(){
         let mut solver = Solver::new(5);
+        solver.add_problem_clause(vec![1, 2, -3, 4]);
         solver.add_problem_clause(vec![]);
 
         let satisfiable = solver.solve();
