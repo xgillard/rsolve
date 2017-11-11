@@ -323,6 +323,11 @@ impl Solver {
     /// rolls back the assignment stack until the moment where the solver has reached a stable
     /// and useful state (from which progress can be made).
     ///
+    /// # Note
+    /// The conflict clause which is learned is immediately minimized with the so called recursive
+    /// minimization technique. For further reference, please refer to
+    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
+    ///
     /// # Return Value
     /// Ok  whenever the conflict could safely be resolved,
     /// Err when the conflict could not be resolved (that is to say, when the problem is
@@ -483,6 +488,10 @@ impl Solver {
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
     ///
+    /// # Bibliographic reference
+    /// For further reference on recursive clause minimization, please refer to
+    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
+    ///
     fn is_implied(lit: Literal, flags: &mut LitIdxVec<Flags>, reason: &VarIdxVec<Option<Reason>>) -> bool {
         // If it's already been analyzed, reuse that info
         let flags_lit = flags[lit];
@@ -611,6 +620,11 @@ impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- RESTART ------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
+
+    /// Implements a partial restart that tries to avoid redoing unnecessary decisions-propagations
+    /// by reusing the current assignment trail. For further reference, please refer to :
+    /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
+    /// * Between Restarts and Backjumps (Ramos, Van Der Tak, Heule -- 2011)
     fn restart(&mut self) {
         match self.find_partial_restart_pos() {
             None => return,
@@ -626,7 +640,7 @@ impl Solver {
 
     /// Finds the position as of which the trail will not be reused when using the partial restart
     /// strategy (reused trail) described in:
-    /// `Reusing the Assignment Trail in CDCL solvers` (Van Der Tak, Ramos, Heule -- 2011)
+    /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
     ///
     /// # Return Value
     /// The index (position == usize) of the first variable that will not be part of the reused
