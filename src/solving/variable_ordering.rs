@@ -114,6 +114,12 @@ impl VariableOrdering {
         return var;
     }
 
+    /// Returns the score associated with some given variable
+    #[inline]
+    pub fn get_score(&self, var: Variable) -> uint {
+        self.score[var]
+    }
+
     /// Sinks the given variable down the heap until the moment when the heap
     /// invariant is restored.
     ///
@@ -387,5 +393,17 @@ mod tests {
             assert!   (popped.to_usize() < last);
             last = popped.to_usize();
         }
+    }
+
+    #[test]
+    fn get_score_should_return_the_score_of_some_given_variable() {
+        let mut tested = VariableOrdering::new(MAX);
+
+        for i in 1..1+MAX {
+            assert_eq!(1, tested.get_score(var(i)));
+        }
+
+        tested.bump(var(3), 3);
+        assert_eq!(24, tested.get_score(var(3)));
     }
 }

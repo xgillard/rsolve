@@ -43,10 +43,13 @@ pub struct Solver {
     var_order    : VariableOrdering,
     /// The partial valuation remembering the last phase of each variable
     phase_saving : Valuation,
-    /// The restart strategt (luby)
-    restart_strat: LubyRestartStrategy,
     /// The number of clauses that can be learned before we start to try cleaning up the database
     max_learned  : usize,
+    /// The restart strategt (luby)
+    restart_strat: LubyRestartStrategy,
+    /// The variables that have been decided upon
+    decisions    : Vec<Variable>,
+    decisions_pos: Vec<usize>,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
@@ -91,8 +94,10 @@ impl Solver {
 
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
-            restart_strat: LubyRestartStrategy::new(6),
             max_learned  : 1000,
+            restart_strat: LubyRestartStrategy::new(2),
+            decisions    : vec![],
+            decisions_pos: vec![],
 
             watchers     : LitIdxVec::with_capacity(nb_vars),
             prop_queue   : Vec::with_capacity(nb_vars),
@@ -235,6 +240,8 @@ impl Solver {
                 // if its a decision, make sure to take that into account
                 if reason.is_none() {
                     self.nb_decisions += 1;
+                    self.decisions.push(lit.var());
+                    self.decisions_pos.push(self.prop_queue.len())
                 }
 
                 // if the solver is at root level, then assignment must follow from the problem
@@ -605,12 +612,69 @@ impl Solver {
     // ---------------------------- RESTART ------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
     fn restart(&mut self) {
-        let forced = self.forced;
-        self.rollback(forced);
+        match self.find_partial_restart_pos() {
+            None => return,
+            Some(position) => {
+                self.rollback(position);
 
-        self.restart_strat.set_next_limit();
-        self.nb_restarts += 1;
-        self.nb_conflicts_since_restart = 0;
+                self.restart_strat.set_next_limit();
+                self.nb_restarts += 1;
+                self.nb_conflicts_since_restart = 0;
+            }
+        }
+    }
+
+    /// Finds the position as of which the trail will not be reused when using the partial restart
+    /// strategy (reused trail) described in:
+    /// `Reusing the Assignment Trail in CDCL solvers` (Van Der Tak, Ramos, Heule -- 2011)
+    ///
+    /// # Return Value
+    /// The index (position == usize) of the first variable that will not be part of the reused
+    /// trail. It returns None when there are no decisions that can be made (that is to say, when
+    /// the trail will be integrally reused).
+    fn find_partial_restart_pos(&mut self) -> Option<usize> {
+        match self.peek_next_decision_var() {
+            None => None,
+            Some(next_var) => {
+                let next_score = self.var_order.get_score(next_var);
+                let mut position= self.prop_queue.len();
+
+                for i in 0..self.decisions.len() {
+                    let decision = self.decisions[i];
+                    if next_score > self.var_order.get_score(decision) {
+                        position = self.decisions_pos[i];
+                        break;
+                    }
+                }
+
+                Some(position)
+            }
+        }
+    }
+
+    /// finds the next variable that would have been assigned if we performed a full restart
+    fn peek_next_decision_var(&mut self) -> Option<Variable> {
+        let mut result = None;
+        let mut undo_stack = vec![];
+
+        // find the next (unassigned) decision variable
+        while !self.var_order.is_empty() {
+            let variable = self.var_order.pop_top();
+            let positive = Literal::positive(variable);
+
+            undo_stack.push(variable);
+            if self.valuation.is_undef(positive) {
+                result = Some(variable);
+                break;
+            }
+        }
+
+        // leave the var_order in the same state as it was before entering this method
+        for v in undo_stack {
+            self.var_order.push_back(v);
+        }
+
+        return result;
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -643,6 +707,11 @@ impl Solver {
     fn undo(&mut self, lit: Literal) {
         if self.is_decision(lit) {
             self.nb_decisions -= 1;
+
+            // TODO maybe assert that popped value == lit.var()
+            //assert_eq!(self.decisions.pop(), Some(lit.var()));
+            self.decisions.pop();
+            self.decisions_pos.pop();
         }
 
         // clear all flags
