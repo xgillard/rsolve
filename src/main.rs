@@ -5,7 +5,8 @@ use rsolve::*;
 
 // TODO: Solver.rs -> test reduce_db()
 // TODO: dimacs.rs -> *
-// TODO: etre plus intelligent (LRB, inprocessing, partial restarts)
+// TODO: tester partial restarts
+// TODO: etre plus intelligent (LRB, inprocessing)
 // TODO: supporter plus d'options DRUP, print_model
 // TODO: supporter plus de types d'input
 // TODO: etre plus bas niveau avec mes alias

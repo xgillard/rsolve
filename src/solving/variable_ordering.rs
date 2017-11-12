@@ -13,13 +13,18 @@ pub struct VariableOrdering {
     /// A binary heap implemented as an array of variables
     heap: Vec<Variable>,
     /// The score associated with each element
-    score   : VarIdxVec<uint>,
+    score   : VarIdxVec<f64>,
     /// The position of each id in the `heap` array
     position: VarIdxVec<uint>,
     /// The current size (#elements) in the heap
     size: uint,
     /// The capacity of the buffers
-    capa: uint
+    capa: uint,
+
+    /// current increment for vsids
+    vsids_increment: f64,
+    /// the vsids decay factor
+    vsids_decay: f64
 }
 
 impl VariableOrdering {
@@ -31,7 +36,10 @@ impl VariableOrdering {
             size    : capa,
             heap    : Vec::with_capacity((1+capa) as usize),
             score   : VarIdxVec::with_capacity(capa as usize),
-            position: VarIdxVec::with_capacity(capa as usize)
+            position: VarIdxVec::with_capacity(capa as usize),
+
+            vsids_increment: 1.0,
+            vsids_decay    : 0.95
         };
 
         // fill padding with a non-existing variable
@@ -41,7 +49,7 @@ impl VariableOrdering {
         for i in 1..(capa+1) {
             ret.heap.push(Variable::from(i));
             ret.position.push(i);
-            ret.score.push(1);
+            ret.score.push(1.0);
         }
 
         return ret;
@@ -58,10 +66,24 @@ impl VariableOrdering {
     /// # Panics
     /// - if the given variable does not fit in the range [1 .. capa]
     #[inline]
-    pub fn bump(&mut self, var: Variable, nb_conflicts: uint) {
-        self.score[var] = (3*self.score[var] + (nb_conflicts<<5)) >> 2;
+    pub fn bump(&mut self, var: Variable) {
+        self.score[var] += self.vsids_increment;
 
         if self.position[var] <= self.size { self.swim(var); }
+    }
+
+    /// Decays the score of all the variables. Given that this is implemented as a MiniSat-like
+    /// E-VSIDS, it simply consists in multiplying the score by 1/vsids_decay
+    pub fn decay(&mut self) {
+        self.vsids_increment *= 1.0/self.vsids_decay;
+
+        if self.vsids_increment > 1e100 {
+            // rescale all the scores
+            for i in self.score.iter_mut() {
+                *i *= 1e-100;
+            }
+            self.vsids_increment *= 1e-100;
+        }
     }
 
     /// Places the given `var` back in the heap (if not already present)
@@ -116,7 +138,7 @@ impl VariableOrdering {
 
     /// Returns the score associated with some given variable
     #[inline]
-    pub fn get_score(&self, var: Variable) -> uint {
+    pub fn get_score(&self, var: Variable) -> f64 {
         self.score[var]
     }
 
@@ -132,7 +154,7 @@ impl VariableOrdering {
 
         let mut kid_pos = self.max_child_of(var_pos);
         let mut kid = self.heap[kid_pos]; // this might denote a non existing variable
-        let mut kid_scr = if kid_pos != 0 { self.score[kid] } else { 0 };
+        let mut kid_scr = if kid_pos != 0 { self.score[kid] } else { 0.0 };
 
         while kid_pos != 0 && kid_scr > var_scr {
             self.heap[var_pos] = kid;
@@ -141,7 +163,7 @@ impl VariableOrdering {
             var_pos = kid_pos;
             kid_pos = self.max_child_of(var_pos);
             kid     = self.heap [kid_pos];
-            kid_scr = if kid_pos != 0 { self.score[kid] } else { 0 };
+            kid_scr = if kid_pos != 0 { self.score[kid] } else { 0.0 };
         }
 
         self.heap[var_pos] = var;
@@ -160,7 +182,7 @@ impl VariableOrdering {
 
         let mut par_pos = var_pos >> 1;
         let mut par= self.heap [par_pos];
-        let mut par_scr = if par_pos != 0 { self.score[par] } else { 0 };
+        let mut par_scr = if par_pos != 0 { self.score[par] } else { 0.0 };
 
         while par_pos > 0 && par_scr < var_scr {
             self.heap[var_pos] = par;
@@ -169,7 +191,7 @@ impl VariableOrdering {
             var_pos = par_pos;
             par_pos = par_pos >> 1;
             par     = self.heap [par_pos];
-            par_scr = if par_pos != 0 { self.score[par] } else { 0 };
+            par_scr = if par_pos != 0 { self.score[par] } else { 0.0 };
         }
 
         self.heap[var_pos] = var;
@@ -246,7 +268,7 @@ mod tests {
     fn bump_must_fail_for_zero(){
         let mut tested = VariableOrdering::new(MAX);
 
-        tested.bump(Variable::from(0), 1);
+        tested.bump(Variable::from(0));
     }
 
     #[test]
@@ -256,14 +278,14 @@ mod tests {
         let mut tested = VariableOrdering::new(MAX);
         // because the ordering can hold up to MAX variables, it means that the accepted vars
         // range from [1;MAX+1]. Hence, to get out of bounds, we need to use MAX+2.
-        tested.bump(Variable::from(MAX+2), 1);
+        tested.bump(Variable::from(MAX+2));
     }
 
     #[test]
     /// bump changes the score, and adapts the position
     fn bump_must_update_the_score_and_position(){
         let mut tested = VariableOrdering::new(MAX);
-        tested.bump(Variable::from(50), 40);
+        tested.bump(Variable::from(50));
 
         assert_eq!( tested.pop_top(), Variable::from(50));
     }
@@ -276,7 +298,7 @@ mod tests {
         for _ in 1..MAX+1 { tested.pop_top(); }
 
         assert!(tested.is_empty());
-        tested.bump(Variable::from(42), 100);
+        tested.bump(Variable::from(42));
         assert!(tested.is_empty());
     }
 
@@ -289,7 +311,7 @@ mod tests {
 
         assert!(tested.is_empty());
         tested.push_back(Variable::from(5));
-        tested.bump(Variable::from(42), 1000);
+        tested.bump(Variable::from(42));
         assert_eq!(tested.pop_top(), Variable::from(5));
         assert!(tested.is_empty());
     }
@@ -302,7 +324,7 @@ mod tests {
         for _ in 1..MAX+1 { tested.pop_top(); }
 
         //assert!(tested.is_empty());
-        tested.bump(Variable::from(42), 1000);
+        tested.bump(Variable::from(42));
         assert!(tested.is_empty());
 
         // refill it
@@ -354,10 +376,13 @@ mod tests {
         // empty it
         for _ in 1..MAX+1 { tested.pop_top(); }
 
-        tested.bump(Variable::from(7), 7);
-        tested.bump(Variable::from(3), 3);
-        tested.bump(Variable::from(9), 9);
-        tested.bump(Variable::from(2), 2);
+        tested.bump(Variable::from(2));
+        tested.decay();
+        tested.bump(Variable::from(3));
+        tested.decay();
+        tested.bump(Variable::from(7));
+        tested.decay();
+        tested.bump(Variable::from(9));
 
         tested.push_back(Variable::from(7));
         tested.push_back(Variable::from(3));
@@ -384,7 +409,10 @@ mod tests {
     #[test]
     fn pop_top_must_remove_items_in_decreasing_score_order(){
         let mut tested = VariableOrdering::new(MAX);
-        for i in 1..MAX+1 { tested.bump(Variable::from(i), i); }
+        for i in 1..MAX+1 {
+            tested.bump(Variable::from(i));
+            tested.decay();
+        }
 
         let mut last = usize::max_value();
         for i in 0..MAX {
@@ -400,10 +428,10 @@ mod tests {
         let mut tested = VariableOrdering::new(MAX);
 
         for i in 1..1+MAX {
-            assert_eq!(1, tested.get_score(var(i)));
+            assert_eq!(1.0, tested.get_score(var(i)));
         }
 
-        tested.bump(var(3), 3);
-        assert_eq!(24, tested.get_score(var(3)));
+        tested.bump(var(3));
+        assert_eq!(2.0, tested.get_score(var(3)));
     }
 }

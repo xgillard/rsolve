@@ -409,7 +409,7 @@ impl Solver {
     fn find_first_uip(&mut self, conflicting: &Clause) -> usize {
         // mark all literals in the conflict clause
         for l in conflicting.iter() {
-            Solver::mark_and_bump(*l, self.nb_conflicts_since_restart, &mut self.flags, &mut self.var_order);
+            Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
         }
 
         // backwards BFS rooted at the conflict to identify uip (and mark its cause)
@@ -441,12 +441,14 @@ impl Solver {
                     // will always happen
                     Some(cause) => {
                         for l in cause.iter().skip(1) {
-                            Solver::mark_and_bump(*l, self.nb_conflicts_since_restart, &mut self.flags, &mut self.var_order);
+                            Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
                         }
                     }
                 }
             }
         }
+
+        self.var_order.decay();
 
         return cursor;
     }
@@ -757,10 +759,10 @@ impl Solver {
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
     ///
-    fn mark_and_bump(lit : Literal, nb_conflicts: usize, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
+    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
-            var_order.bump(lit.var(), nb_conflicts as uint);
+            var_order.bump(lit.var() );
         }
     }
 
@@ -942,9 +944,11 @@ mod tests {
         solver.phase_saving.set_value(lit(2), Bool::True);
         solver.phase_saving.set_value(lit(3), Bool::True);
 
-        solver.var_order.bump(var(3), 30);
-        solver.var_order.bump(var(2), 20);
-        solver.var_order.bump(var(1), 10);
+        solver.var_order.bump(var(1));
+        solver.var_order.decay();
+        solver.var_order.bump(var(2));
+        solver.var_order.decay();
+        solver.var_order.bump(var(3));
 
         let mut decision = solver.decide();
         assert!(decision.is_some());
@@ -965,9 +969,11 @@ mod tests {
     #[test]
     fn decide_must_return_the_saved_polarity(){
         let mut solver = Solver::new(3);
-        solver.var_order.bump(var(3), 30);
-        solver.var_order.bump(var(2), 20);
-        solver.var_order.bump(var(1), 10);
+        solver.var_order.bump(var(1));
+        solver.var_order.decay();
+        solver.var_order.bump(var(2));
+        solver.var_order.decay();
+        solver.var_order.bump(var(3));
 
         solver.phase_saving.set_value(lit(1), Bool::False);
         solver.phase_saving.set_value(lit(2), Bool::True);
@@ -1655,8 +1661,9 @@ mod tests {
         solver.add_problem_clause(vec![3, 4, 5]);
         solver.add_problem_clause(vec![3, 1,-5]);
 
-        solver.var_order.bump(var(1), 10);
-        solver.var_order.bump(var(2),  5);
+        solver.var_order.bump(var(2));
+        solver.var_order.decay();
+        solver.var_order.bump(var(1));
 
         assert!(solver.solve());
         assert_eq!(solver.nb_conflicts_since_restart, 1);
@@ -1710,8 +1717,9 @@ mod tests {
 
         solver.add_problem_clause(vec![ 1, 2]);
 
-        solver.var_order.bump(var(3), 10);
-        solver.var_order.bump(var(5),  5);
+        solver.var_order.bump(var(3));
+        solver.var_order.decay();
+        solver.var_order.bump(var(5));
 
         assert!(!solver.solve());
     }
