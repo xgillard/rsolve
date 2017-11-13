@@ -39,7 +39,7 @@ impl VariableOrdering {
             position: VarIdxVec::with_capacity(capa as usize),
 
             vsids_increment: 1.0,
-            vsids_decay    : 0.95
+            vsids_decay    : 0.75
         };
 
         // fill padding with a non-existing variable
