@@ -15,9 +15,8 @@ use xz2::bufread::XzDecoder;
 use bzip2::bufread::BzDecoder;
 use flate2::bufread::GzDecoder;
 
-// TODO: Solver.rs -> test reduce_db()
+// TODO: Solver.rs -> partial restarts
 // TODO: dimacs.rs -> *
-// TODO: tester partial restarts
 // TODO: etre plus intelligent (LRB, inprocessing)
 // TODO: supporter plus d'options DRUP, print_model
 // TODO: supporter plus de types d'input
