@@ -28,7 +28,7 @@ pub struct Solver {
 
     // ~~~ # Solver State ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The current assignment of boolean values to variables
-    valuation    : Valuation,
+    pub valuation    : Valuation,
     /// The constraints that are forced by the problem definition
     constraints  : Vec<Aliasable<Clause>>,
     /// A flag telling whether or not the solver was detected to be unsat.

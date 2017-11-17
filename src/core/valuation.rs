@@ -47,4 +47,6 @@ impl Valuation {
     pub fn is_false(&self, l: Literal) -> bool {
         self.get_value(l) == Bool::False
     }
+
+    pub fn nb_vars(&self) -> usize { self.0.len() }
 }

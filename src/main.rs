@@ -19,13 +19,13 @@ use flate2::bufread::GzDecoder;
 // TODO: dimacs.rs -> *
 // TODO: etre plus intelligent (LRB, inprocessing)
 // TODO: supporter plus d'options DRUP, print_model
-// TODO: supporter plus de types d'input
-// TODO: etre plus bas niveau avec mes alias
+// TODO: add getters for public fields of the solver
 
 /// This simple structure encapsulates the options and arguments that are passed to the solver using
 /// the command line interface (cli).
 struct CliArgs {
-    filename: Option<String>
+    filename   : Option<String>,
+    print_model: bool
 }
 
 fn main() {
@@ -38,7 +38,7 @@ fn main() {
 
     let satisfiable = solver.solve();
 
-    print_result(&solver, satisfiable);
+    print_result(&solver,&args, satisfiable);
 }
 
 fn print_header() {
@@ -50,9 +50,12 @@ fn print_header() {
     println!("c ==============================================================================");
 }
 
-fn print_result(solver: &Solver, satisfiable: bool){
+fn print_result(solver: &Solver, config: &CliArgs, satisfiable: bool){
     if satisfiable {
         println!("s SATISFIABLE");
+
+        if config.print_model { print_model(solver); }
+
     } else {
         println!("s UNSATISFIABLE");
     }
@@ -62,10 +65,27 @@ fn print_result(solver: &Solver, satisfiable: bool){
     println!("c ******************************************************************************");
 }
 
+fn print_model(solver: &Solver) {
+    let valuation = &solver.valuation;
+    let mut model = String::from("v ");
+    for v in 1..valuation.nb_vars()+1 {
+        let var_value = match valuation.get_value(lit(v as iint)) {
+            Bool::True =>  v as isize,
+            Bool::False=>-(v as isize),
+            Bool::Undef=> panic!("The problem is supposed to be SOLVED ! How can it be ?")
+        };
+
+        model.push_str(&format!("{} ", &var_value.to_string()));
+    }
+    model.push_str("0");
+
+    println!("{}", model);
+}
+
 /// This function parses the command line arguments of the program and returns an object
 /// representing these arguments.
 fn arguments() -> CliArgs {
-    let mut options= CliArgs { filename: None };
+    let mut options= CliArgs { filename: None, print_model: false };
 
     // This is where we actually handle the command line arguments with Argparse (like we'd do in
     // python3). Note, this scope is necessary since it allows us to close the borrow scope for
@@ -76,10 +96,15 @@ fn arguments() -> CliArgs {
 
         // --- Declare the actual options here ----------------------------------------------------
         parser.refer(&mut options.filename)
-              .add_argument("input_file",
+            .add_argument("input_file",
                             StoreOption,
                             "The input file. This should be a dimacs cnf file which may be \
                                    compressed with bz2 (bzip2) , gz (gzip) or xz (lzma)");
+
+        parser.refer(&mut options.print_model)
+            .add_option(&["-p", "--print-model"],
+                        StoreTrue,
+                        "Prints a model when the instance is proven satisfiable.");
 
         parser.parse_args_or_exit();
     }
