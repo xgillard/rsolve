@@ -18,6 +18,9 @@ use flate2::bufread::GzDecoder;
 // TODO: Solver.rs -> partial restarts
 // TODO: dimacs.rs -> *
 // TODO: etre plus intelligent (LRB, inprocessing)
+//       - minimiser a base de propagation
+//       - enlever les clauses redondantes s/ base de propag.
+//       - sinon, subsumption, self-subsuming resolution, VE b/ substitution
 // TODO: supporter plus d'options DRUP, print_model
 // TODO: add getters for public fields of the solver
 
