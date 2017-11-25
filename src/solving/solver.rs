@@ -79,6 +79,48 @@ pub struct Solver {
     flags        : LitIdxVec<Flags>
 }
 
+/// This is where we do the bulk of the work to add a clause to a clause database.
+///
+/// # Note
+/// It was implemented as a macro in order to define this behavior only once and avoid repeating it.
+/// Nevertheless, this macro is not meant to be accessible from the outside world and you should
+/// refrain from using it. The only place where it is really legitimate to call this macro is from
+/// within `add_problem_clause` and `add_learned_clause`. The latter two are the ones you should
+/// really be using instead of the macro.
+macro_rules! add_clause {
+    ($solver: ident, $db : ident, $literals: expr) => {
+        let clause_size = $literals.len();
+        let clause = Aliasable::new(Clause::from($literals));
+
+        $solver.$db.push(clause);
+
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause_size == 0 {
+            $solver.is_unsat = true;
+            return;
+        }
+
+        // this is fragile !!
+        let alias = $solver.$db.last().unwrap().alias();
+        let target = alias.get_mut().unwrap();
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause_size == 1 {
+            $solver.is_unsat |= $solver.assign(target[0], Some(alias.clone())).is_err();
+            return;
+        }
+
+        // -- Activate the clause --
+        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
+        // at least two literals
+        let wl1 = target[0];
+        let wl2 = target[1];
+
+        $solver.watchers[wl1].push(alias.clone());
+        $solver.watchers[wl2].push(alias.clone());
+    };
+}
+
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
@@ -120,35 +162,11 @@ impl Solver {
 
     // TODO: rename post constraint ?
     pub fn add_problem_clause(&mut self, c :Vec<iint>) {
-        let clause_size = c.len();
-
-        let watched: Vec<Literal> = c.iter()
-                                     .take(2)
+        let literals: Vec<Literal> = c.iter()
                                      .map(|l|Literal::from(*l))
                                      .collect();
 
-        let clause = Aliasable::new(Clause::from(c));
-
-        self.constraints.push( clause);
-
-        // if it is the empty clause that we're adding, the problem is solved and provably unsat
-        if clause_size == 0 {
-            self.is_unsat = true;
-            return;
-        }
-
-        let alias = self.constraints.last().unwrap().alias();
-        let target = alias.get_mut().unwrap();
-
-        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
-        if clause_size == 1 {
-            self.is_unsat |= self.assign(target[0], Some(alias.clone())).is_err();
-            return;
-        }
-
-        for l in watched {
-            self.watchers[l].push(alias.clone());
-        }
+        add_clause!(self, constraints, literals);
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -348,35 +366,7 @@ impl Solver {
     }
 
     fn add_learned_clause(&mut self, c :Vec<Literal>) {
-        let clause_size = c.len();
-
-        let watched: Vec<Literal> = c.iter()
-            .take(2)
-            .map(|l| *l)
-            .collect();
-
-        let clause = Aliasable::new(Clause::from(c));
-
-        self.learned.push( clause);
-
-        // if it is the empty clause that we're adding, the problem is solved and provably unsat
-        if clause_size == 0 {
-            self.is_unsat = true;
-            return;
-        }
-
-        let alias = self.learned.last().unwrap().alias();
-        let target = alias.get_mut().unwrap();
-
-        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
-        if clause_size == 1 {
-            self.is_unsat |= self.assign(target[0], Some(alias.clone())).is_err();
-            return;
-        }
-
-        for l in watched {
-            self.watchers[l].push(alias.clone());
-        }
+        add_clause!(self, learned, c);
     }
 
 	/// This method builds a and returns minimized conflict clause by walking the marked literals
