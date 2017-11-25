@@ -263,6 +263,7 @@ impl Solver {
 
                 // if the solver is at root level, then assignment must follow from the problem
                 if self.nb_decisions == 0 {
+                    self.flags[lit].set(Flag::IsForced);
                     self.forced += 1;
                 }
 

@@ -7,10 +7,11 @@ use std::ops::{BitOr, BitAnd, BitOrAssign, BitAndAssign, BitXor, BitXorAssign};
 #[derive(Debug)]
 pub enum Flag {
     Clear              =  0, //--> serves to reset all flags
-    IsMarked           =  1, //--> used during conflict analysis
-    IsImplied          =  2, //--> forced by the ongoing conflict clause
-    IsNotImplied       =  4, //--> not forced but effectively analysed
-    IsInConflictClause =  8  //--> makes it easy to retrieve the backjump point
+    IsForced           =  1, //--> this flag is set for all literals which are *FORCED* by the problem
+    IsMarked           =  2, //--> used during conflict analysis
+    IsImplied          =  4, //--> forced by the ongoing conflict clause
+    IsNotImplied       =  8, //--> not forced but effectively analysed
+    IsInConflictClause = 16  //--> makes it easy to retrieve the backjump point
 }
 
 /// The `Flags` newtype, as its name suggests, serves the point of collecting the various flags that
