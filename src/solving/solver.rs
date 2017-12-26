@@ -165,8 +165,8 @@ impl Solver {
         // don't add the clause if it is a tautology
         c.sort_unstable_by(|x, y| x.abs().cmp(&y.abs()));
 
-        for i in 0..c.len()-1 {
-            if c[i] == -c[i+1] { return; }
+        for i in (1..c.len()).rev() {
+            if c[i] == -c[i-1] { return; }
         }
 
         let literals: Vec<Literal> = c.iter()
@@ -284,7 +284,7 @@ impl Solver {
 
                 // if the solver is at root level, then assignment must follow from the problem
                 if self.nb_decisions == 0 {
-                    self.flags[lit].set(Flag::IsForced); // TODO: use this flag for real
+                    self.flags[lit].set(Flag::IsForced);
                     self.forced += 1;
                 }
 
@@ -1149,7 +1149,7 @@ mod tests {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!(format!("{:?}", solver.constraints[0].alias()),
+        assert_eq!(format!("{:?}", solver.constraints[6].alias()),
                    format!("{:?}", conflict.unwrap()));
     }
 
@@ -1193,7 +1193,7 @@ mod tests {
         let conflict = solver.propagate();
 
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))",
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))",
                    format!("{:?}", &conflict));
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         // note: is_uip() *must* be tested *after* find_first_uip() because the former method
@@ -1243,7 +1243,7 @@ mod tests {
 
         let conflict = solver.propagate();
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))",
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))",
                    format!("{:?}", &conflict));
 
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
@@ -1279,7 +1279,7 @@ mod tests {
         let conflict = solver.propagate();
 
         assert!(conflict.is_some());
-        assert_eq!("Some(Alias(Some(Clause([Literal(3), Literal(-8), Literal(1)]))))", format!("{:?}", &conflict));
+        assert_eq!("Some(Alias(Some(Clause([Literal(-3), Literal(-8)]))))", format!("{:?}", &conflict));
         assert_eq!(6, solver.find_first_uip(conflict.unwrap().get_ref().unwrap()));
         assert!(solver.is_uip(6));
     }
