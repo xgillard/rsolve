@@ -41,13 +41,16 @@ pub fn load_clauses<Source>(solver: &mut Solver, input: &mut Lines<Source>)
             if lit != 0 {
                 ongoing_clause.push(lit);
             } else {
-                solver.add_problem_clause(&mut ongoing_clause);
+                if solver.add_problem_clause(&mut ongoing_clause).is_err() {
+                    return;
+                }
                 ongoing_clause.clear();
             }
         }
     }
 
     if !ongoing_clause.is_empty() {
+        #[allow(unused_must_use)]
         solver.add_problem_clause(&mut ongoing_clause);
     }
 

@@ -33,6 +33,9 @@ use super::*;
 pub struct Clause {
     /// This is the actual set of literals composing the clause
     literals: Vec<Literal>,
+    /// A flag indicating whether or not this clause originates from the problem definition or if
+    /// it was learned during search
+    is_learned: bool,
     /// This is an heuristic 'quality' score associated with each of the clauses which is used
     /// by the solver's clause management (removal) strategy
     score: usize
@@ -40,8 +43,8 @@ pub struct Clause {
 
 impl Clause {
     /// Creates a new clause from its terms
-    pub fn new(terms: Vec<Literal>) -> Clause {
-        Clause{ literals: terms, score : 0 }
+    pub fn new(terms: Vec<Literal>, is_learned: bool) -> Clause {
+        Clause{ literals: terms, score : 0, is_learned }
     }
 
     /// Tries to find a new literal that can be watched by the given clause.
@@ -91,18 +94,6 @@ impl Clause {
     }
 }
 
-impl From<Vec<iint>> for Clause {
-    fn from(v : Vec<iint> ) -> Clause {
-        Clause::new(v.iter().map(|l| Literal::from(*l)).collect())
-    }
-}
-
-impl From<Vec<Literal>> for Clause {
-    fn from(v : Vec<Literal> ) -> Clause {
-        Clause::new(v)
-    }
-}
-
 impl Deref for Clause {
     type Target = Vec<Literal>;
 
@@ -146,7 +137,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(2);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(2)))
@@ -166,7 +157,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(1)))
@@ -186,7 +177,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(4)))
@@ -206,7 +197,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(8)))
@@ -226,7 +217,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(4)))
@@ -246,7 +237,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Ok(Literal::from(8)))
@@ -266,7 +257,7 @@ mod tests {
             Literal::from(1),
             Literal::from(2),
             Literal::from(4),
-            Literal::from(8)]);
+            Literal::from(8)], false);
 
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Err(Literal::from(2)))
