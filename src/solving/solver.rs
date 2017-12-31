@@ -27,6 +27,8 @@ pub struct Solver {
     pub nb_conflicts: usize,
     /// The number of restarts that have occured since the very beginning
     pub nb_restarts  : usize,
+    /// The number of learned clauses currently in the database
+    pub nb_learned : usize,
 
     // ~~~ # Solver State ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The current assignment of boolean values to variables
@@ -86,7 +88,8 @@ impl Solver {
             nb_decisions : 0,
             nb_restarts  : 0,
             nb_conflicts_since_restart: 0,
-            nb_conflicts: 0,
+            nb_conflicts : 0,
+            nb_learned   : 0,
 
             valuation    : Valuation::new(nb_vars),
             clauses      : vec![],
@@ -117,6 +120,10 @@ impl Solver {
 
         return solver;
     }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- CLAUSE DB MANAGEMENT -----------------------------------------//
+    // -------------------------------------------------------------------------------------------//
 
     /// This is where we do the bulk of the work to add a clause to a clause database.
     ///
@@ -178,6 +185,77 @@ impl Solver {
         return self.add_clause(Clause::new(literals, false) );
     }
 
+    fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()> {
+        let result = self.add_clause(Clause::new(c, true) );
+
+        if result.is_ok() && result.unwrap() != CLAUSE_ELIDED {
+            self.nb_learned += 1;
+        }
+
+        return result;
+    }
+
+    fn remove_clause(&mut self, clause_id: ClauseId) {
+        let last = self.clauses.len() - 1;
+
+        // Remove clause_id from the watchers lists
+        for i in 0..2 {
+            let watched = self.clauses[clause_id][i];
+
+            let nb_watchers = self.watchers[watched].len();
+            for i in 0..nb_watchers {
+                if self.watchers[watched][i] == clause_id {
+                    self.watchers[watched].swap_remove(i);
+                    break;
+                }
+            }
+        }
+
+        // Remove clause_id from the reason
+        let first_variable = self.clauses[clause_id][0].var();
+        match self.reason[first_variable] {
+            None    => { /* nothing to do */ },
+            Some(r) => {
+                if r == clause_id {
+                    self.reason[first_variable] = None
+                }
+            }
+        }
+
+        if last != clause_id {
+            // Replace last by clause_id in the watchers lists
+            for i in 0..2 {
+                let watched = self.clauses[last][i];
+
+                let nb_watchers = self.watchers[watched].len();
+                for i in 0..nb_watchers {
+                    if self.watchers[watched][i] == last {
+                        self.watchers[watched][i] = clause_id;
+                        break;
+                    }
+                }
+            }
+
+            // Replace last by clause_id in the reason
+            let first_variable = self.clauses[last][0].var();
+            match self.reason[first_variable] {
+                None => { /* nothing to do */ },
+                Some(r) => {
+                    if r == last {
+                        self.reason[first_variable] = Some(clause_id)
+                    }
+                }
+            }
+        }
+
+        // Effectively remove the clause
+        if self.clauses[clause_id].is_learned {
+            self.nb_learned -= 1;
+        }
+
+        self.clauses.swap_remove(clause_id);
+    }
+
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- SEARCH -------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
@@ -205,11 +283,10 @@ impl Solver {
                         return false;
                     }
 
-                    // FIXME: reduce db
-                    //if self.learned.len() > self.max_learned {
-                    //    self.reduce_db();
-                    //    self.max_learned = (self.max_learned * 3) / 2;
-                    //}
+                    if self.nb_learned > self.max_learned {
+                        self.reduce_db();
+                        self.max_learned = (self.max_learned * 3) / 2;
+                    }
 
                     if self.restart_strat.is_restart_required(self.nb_conflicts_since_restart) {
                         self.restart();
@@ -376,10 +453,6 @@ impl Solver {
                 return self.assign(asserting_lit, Some(c_id));
             }
         }
-    }
-
-    fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()> {
-        self.add_clause(Clause::new(c, true) )
     }
 
 	/// This method builds a and returns minimized conflict clause by walking the marked literals
@@ -568,26 +641,47 @@ impl Solver {
         }
 
         // sort the clauses according to their heuristic quality score
-        self.clauses.sort_unstable_by_key(|c| c.get_score());
+        let mut clause_ids: Vec<ClauseId> = (0..nb_clauses).collect();
+        clause_ids.sort_unstable_by_key(|c| self.clauses[*c].get_score() );
+        clause_ids.reverse();
 
         // reduces the size of the database by removing half of the worst clauses.
         // It should be noted though that unary and binary clauses are *never* removed
         // and that 'locked' clauses (those who are reason for some assignment) are kept as well
         let mut counter = 0;
         let limit = self.clauses.len() / 2;
-        for id in (0..self.clauses.len()).rev() {
-            let ref clause = self.clauses[id];
 
-            if counter >= limit        { break;    }
-            if clause.len() <= 2  { continue; }
+        let mut remove_agenda = vec![];
+        for id in clause_ids {
+            if counter >= limit            { break;    }
+            if self.clauses[id].len() <= 2 { continue; }
             if self.is_locked(id) { continue; }
 
             // if the clause is unit or almost, *don't* remove it !
-            if clause.get_score() <= 2 { break;    }
+            if self.clauses[id].get_score() <= 2 { break;    }
 
-            // FIXME
-            //self.clauses.swap_remove(id);
+            // remember that we'll need to delete that clause
+            remove_agenda.push(id);
             counter+= 1;
+        }
+
+        // Actually proceed to the clause deletion
+        let nb_delete = remove_agenda.len();
+        for i in 0..nb_delete {
+            let id = remove_agenda[i];
+            let last   = self.clauses.len()-1;
+
+            self.remove_clause(id);
+
+            // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
+            // the agenda (to avoid panicking on out of bounds index)
+            if id != last {
+                for j in i..nb_delete {
+                    if remove_agenda[j] == last {
+                        remove_agenda[j] = id;
+                    }
+                }
+            }
         }
     }
 
@@ -786,10 +880,10 @@ impl Solver {
 
         for id in (0..db_size).rev() {
             // If it's locked, we keep it for further reference. But if it is not, we drop the clause
-            //if !self.is_locked(id) && clause.contains(&lit) {
-            //    self.constraints.swap_remove(i);   // FIXME: find solution for deletion
-            //    continue;
-            //}
+            if !self.is_locked(id) && self.clauses[id].contains(&lit) {
+                self.remove_clause(id);
+                continue;
+            }
 
             // When the literal is failed, we try to shrink the database
             let failed = !lit;

@@ -35,7 +35,7 @@ pub struct Clause {
     literals: Vec<Literal>,
     /// A flag indicating whether or not this clause originates from the problem definition or if
     /// it was learned during search
-    is_learned: bool,
+    pub is_learned: bool,
     /// This is an heuristic 'quality' score associated with each of the clauses which is used
     /// by the solver's clause management (removal) strategy
     score: usize
