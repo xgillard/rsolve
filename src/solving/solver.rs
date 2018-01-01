@@ -1171,7 +1171,6 @@ mod tests {
         assert!(decision.is_none());
     }
 
-    /* FIXME
     #[test]
     fn propagate_processes_everything_until_a_fixed_point_is_reached(){
         let mut solver = Solver::new(3);
@@ -1193,8 +1192,6 @@ mod tests {
         assert_eq!(solver.prop_queue, vec![lit(-3), lit(-2), lit(-1)]);
     }
 
-
-    // FIXME: reasoning has the same effect as propagation here
     #[test]
     fn propagate_stops_when_a_conflict_is_detected() {
         let mut solver = Solver::new(3);
@@ -1211,10 +1208,9 @@ mod tests {
         solver.assign(Literal::from(-2), None).expect("-2 should be assignable");
 
         let conflict = solver.propagate();
-        assert_eq!("Some(Alias(Some(Clause([Literal(2), Literal(-3)]))))", format!("{:?}", conflict));
+        assert_eq!(Some(1), conflict);
         assert_eq!(solver.prop_queue, vec![lit(-3), lit(2)])
     }
-    */
 
     #[test]
     fn propagate_finds_a_non_trivial_conflict(){
@@ -1973,109 +1969,101 @@ mod tests {
         assert_eq!(false, solver.is_locked(clause));
     }
 
-    // FIXME
-    //#[test]
-    //// This scenario is contrived, it does not respect what a solver would normally do (learned
-    //// clauses do not derive from the original problem statement)
-    //fn reduce_db_removes_worst_clauses(){
-    //    let mut solver = Solver::new(5);
-    //    // 4 unassigned literals (should be deleted)
-    //    solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
-    //    // 1 unassigned literal (shoudl remain)
-    //    solver.add_learned_clause(vec![lit(1), lit(2)]);
-    //
-    //    assert!(solver.assign(lit(1), None).is_ok());
-    //
-    //    assert_eq!(2, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(1, solver.learned.len());
-    //    assert_eq!("Aliasable(Clause([Literal(1), Literal(2)]))", format!("{:?}", solver.learned[0]));
-    //}
+    #[test]
+    // This scenario is contrived, it does not respect what a solver would normally do (learned
+    // clauses do not derive from the original problem statement)
+    fn reduce_db_removes_worst_clauses(){
+        let mut solver = Solver::new(5);
+        // 4 unassigned literals (should be deleted)
+        solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
+        // 1 unassigned literal (shoudl remain)
+        solver.add_learned_clause(vec![lit(1), lit(2)]);
 
-    // FIXME
-    //#[test]
-    //// This scenario is contrived, it does not respect what a solver would normally do (learned
-    //// clauses do not derive from the original problem statement). Additionally, it makes a clause
-    //// be the reason for the assignment of some literal while this would never happen in practice.
-    //// Nevertheless, it lets me test what I intend to test (and just that!)
-    //fn reduce_db_does_not_remove_locked_clauses(){
-    //    let mut solver = Solver::new(5);
-    //    // learned[0] : 3 unassigned literals (should be deleted)
-    //    solver.add_learned_clause(vec![lit(2), lit(1), lit(3), lit(4), lit(5)]);
-    //    // learned[1] : 1 unassigned literal (shoudl remain)
-    //    solver.add_learned_clause(vec![lit(1), lit(2), lit(3)]);
-    //
-    //    assert!(solver.assign(lit(1), None).is_ok());
-    //    let clause_0 = solver.learned[0].alias();
-    //    let clause_00 = solver.learned[0].alias();
-    //    assert!(solver.assign(lit(2), Some(clause_0)).is_ok());
-    //
-    //    assert!(solver.is_locked(&clause_00));
-    //    assert_eq!(2, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(2, solver.learned.len());
-    //}
+        assert!(solver.assign(lit(1), None).is_ok());
 
-    // FIXME
-    //#[test]
-    //fn reduce_db_does_not_impact_problem_clauses(){
-    //    let mut solver = Solver::new(5);
-    //    // constaint -> all unassigned
-    //    solver.add_problem_clause(&mut vec![2, 3, 4, 5]);
-    //    // learned -> 1
-    //    solver.add_learned_clause(vec![lit(1)]);
-    //
-    //    assert!(solver.assign(lit(1), None).is_ok());
-    //
-    //    assert_eq!(1, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(1, solver.learned.len());
-    //    assert_eq!(1, solver.constraints.len());
-    //}
+        assert_eq!(2, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(1, solver.clauses.len());
+        assert_eq!("Clause([Literal(1), Literal(2)])", format!("{:?}", solver.clauses[0]));
+    }
 
-    // FIXME
-    //#[test]
-    //fn reduce_db_does_not_remove_clauses_of_size_2_or_less(){
-    //    let mut solver = Solver::new(5);
-    //    solver.add_learned_clause(vec![lit(1), lit(3)]);
-    //    solver.add_learned_clause(vec![lit(2), lit(3)]);
-    //    solver.add_learned_clause(vec![lit(4), lit(3)]);
-    //    solver.add_learned_clause(vec![lit(5), lit(3)]);
-    //    solver.add_learned_clause(vec![lit(3)]);
-    //
-    //    assert_eq!(5, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(5, solver.learned.len());
-    //}
+    #[test]
+    // This scenario is contrived, it does not respect what a solver would normally do (learned
+    // clauses do not derive from the original problem statement). Additionally, it makes a clause
+    // be the reason for the assignment of some literal while this would never happen in practice.
+    // Nevertheless, it lets me test what I intend to test (and just that!)
+    fn reduce_db_does_not_remove_locked_clauses(){
+        let mut solver = Solver::new(5);
+        // learned[0] : 3 unassigned literals (should be deleted)
+        solver.add_learned_clause(vec![lit(2), lit(1), lit(3), lit(4), lit(5)]);
+        // learned[1] : 1 unassigned literal (shoudl remain)
+        solver.add_learned_clause(vec![lit(1), lit(2), lit(3)]);
 
-    // FIXME
-    //#[test]
-    //fn reduce_db_does_not_remove_clauses_of_size_2_or_less_under_assignment(){
-    //    let mut solver = Solver::new(5);
-    //    solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
-    //    solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
-    //    solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
-    //    solver.add_learned_clause(vec![lit(3), lit(5)]);
-    //
-    //    assert!(solver.assign(lit(3), None).is_ok());
-    //
-    //    assert_eq!(4, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(4, solver.learned.len());
-    //}
+        assert!(solver.assign(lit(1), None   ).is_ok());
+        assert!(solver.assign(lit(2), Some(0)).is_ok());
 
-    // FIXME
-    //#[test]
-    //fn reduce_db_tries_to_removes_half_of_the_clauses(){
-    //    let mut solver = Solver::new(5);
-    //    solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
-    //    solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
-    //    solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
-    //
-    //    assert_eq!(3, solver.learned.len());
-    //    solver.reduce_db();
-    //    assert_eq!(2, solver.learned.len());
-    //}
+        assert!(solver.is_locked(0));
+        assert_eq!(2, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(2, solver.clauses.len());
+    }
+
+    #[test]
+    fn reduce_db_does_not_impact_problem_clauses(){
+        let mut solver = Solver::new(5);
+        // constaint -> all unassigned
+        solver.add_problem_clause(&mut vec![2, 3, 4, 5]);
+        // learned -> 1
+        solver.add_learned_clause(vec![lit(1)]);
+
+        assert!(solver.assign(lit(1), None).is_ok());
+
+        assert_eq!(1, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(1, solver.clauses.len());
+        assert!(! solver.clauses[0].is_learned);
+    }
+
+    #[test]
+    fn reduce_db_does_not_remove_clauses_of_size_2_or_less(){
+        let mut solver = Solver::new(5);
+        solver.add_learned_clause(vec![lit(1), lit(3)]);
+        solver.add_learned_clause(vec![lit(2), lit(3)]);
+        solver.add_learned_clause(vec![lit(4), lit(3)]);
+        solver.add_learned_clause(vec![lit(5), lit(3)]);
+        solver.add_learned_clause(vec![lit(3)]); // ELIDED
+
+        assert_eq!(4, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(4, solver.clauses.len());
+    }
+
+    #[test]
+    fn reduce_db_does_not_remove_clauses_of_size_2_or_less_under_assignment(){
+        let mut solver = Solver::new(5);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(3), lit(5)]);
+
+        assert!(solver.assign(lit(3), None).is_ok());
+
+        assert_eq!(4, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(4, solver.clauses.len());
+    }
+
+    #[test]
+    fn reduce_db_tries_to_removes_half_of_the_clauses(){
+        let mut solver = Solver::new(5);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
+
+        assert_eq!(3, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(2, solver.clauses.len());
+    }
 
     fn get_last_constraint(solver : &Solver) -> ClauseId {
         solver.clauses.len() - 1
