@@ -54,6 +54,8 @@ pub struct Solver {
     /// The variables that have been decided upon
     decisions    : Vec<Variable>,
     decisions_pos: Vec<usize>,
+    /// The last level at which some variable was assigned
+    level        : VarIdxVec<u32>,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
@@ -101,6 +103,7 @@ impl Solver {
             restart_strat: LubyRestartStrategy::new(1),
             decisions    : vec![],
             decisions_pos: vec![],
+            level        : VarIdxVec::from(vec![0; nb_vars]),
 
             watchers     : LitIdxVec::with_capacity(nb_vars),
             prop_queue   : Vec::with_capacity(nb_vars),
@@ -343,6 +346,7 @@ impl Solver {
 
                 self.valuation.set_value(lit, Bool::True);
                 self.reason[lit.var()] = reason;
+                self.level [lit.var()] = self.nb_decisions;
                 self.prop_queue.push(!lit);
 
                 // if its a decision, make sure to take that into account
@@ -510,15 +514,23 @@ impl Solver {
 
             // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
             // decision literal because, if it were, the is_uip() would have been true.
-            match &self.reason[lit.var()] {
+            match self.reason[lit.var()] {
                 // will never happen
-                &None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
-                &Some(c_id) => match c_id {
+                None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
+                Some(c_id) => match c_id {
                     // will not happen either
                     CLAUSE_ELIDED => {/* Ignore */},
                     // will always happen
                     reason_id => {
+                        // Glucose-like database management
+                        let lbd = self.literal_block_distance(reason_id);
+
                         let ref mut cause = self.clauses[reason_id];
+
+                        if lbd < cause.get_lbd() {
+                            cause.set_lbd(lbd);
+                        }
+
                         for l in cause.iter().skip(1) {
                             Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
                         }
@@ -641,26 +653,20 @@ impl Solver {
         let ref clause = self.clauses[clause_id];
 
         clause.is_learned
-            && clause.get_score() > 2
+            && clause.get_lbd() > 2
             && clause.len() > 2
             && !self.is_locked(clause_id)
     }
 
     /// Forgets some of the less useful clauses to speed up the propagation process.
     fn reduce_db(&mut self) {
-        // reset all heuristic quality scores
+        // sort the clauses according to their heuristic quality score (LBD)
         let nb_clauses = self.clauses.len();
-        for id in 0..nb_clauses {
-            let score = self.nb_unassigned(id);
-            self.clauses[id].set_score(score);
-        }
-
-        // sort the clauses according to their heuristic quality score
         let mut remove_agenda: Vec<ClauseId> = (0..nb_clauses)
             .filter(|id| self.can_forget(*id))
             .collect();
 
-        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_score());
+        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_lbd());
         remove_agenda.reverse();
 
         // reduces the size of the database by removing half of the worst clauses.
@@ -708,19 +714,28 @@ impl Solver {
         }
     }
 
-    /// This metric counts the number of unassigned literals in the given clause.
-    // TODO: essayer avec le psm() plutot que le unassigned count
-    fn nb_unassigned(&self, clause_id: ClauseId) -> usize {
+    /// Computes the literal block distance (LBD) of some clause.
+    fn literal_block_distance(&self, clause_id: ClauseId) -> u32 {
+        // Shortcut: Having an LBD of two means it is a glue clause. It will never be deleted so
+        // hence there is no point in recomputing it every time as it is not going to be improved.
         let ref clause = self.clauses[clause_id];
-        let mut counter = 0;
+        if clause.get_lbd() <= 2 { return clause.get_lbd(); }
+
+        let mut min_level = 0;
+        let mut max_level = 0;
 
         for lit in clause.iter() {
-            if self.valuation.is_undef(*lit) {
-                counter += 1;
+            let level = self.level[lit.var()];
+
+            if level < min_level {
+                min_level = level;
+            }
+            if level > max_level {
+                max_level = level;
             }
         }
 
-        return counter;
+        return max_level - min_level;
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -1901,44 +1916,6 @@ mod tests {
     }
 
     #[test]
-    fn nb_unassigned_must_return_the_number_of_unassigned_literals_in_a_clause(){
-        let mut solver = Solver::new(3);
-        solver.add_problem_clause(&mut vec![1, 2, 3]);
-
-        let clause = get_last_constraint(&solver);
-
-        assert_eq!(3, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(1), None).is_ok());
-        assert_eq!(2, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(2), None).is_ok());
-        assert_eq!(1, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(3), None).is_ok());
-        assert_eq!(0, solver.nb_unassigned(clause));
-    }
-
-    #[test]
-    fn nb_unassigned_must_return_the_number_of_unassigned_literals_in_a_clause_taking_negation_into_account(){
-        let mut solver = Solver::new(3);
-        solver.add_problem_clause(&mut vec![-1,-2,-3]);
-
-        let clause = get_last_constraint(&solver);
-
-        assert_eq!(3, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(1), None).is_ok());
-        assert_eq!(2, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(2), None).is_ok());
-        assert_eq!(1, solver.nb_unassigned(clause));
-
-        assert!(solver.assign(lit(3), None).is_ok());
-        assert_eq!(0, solver.nb_unassigned(clause));
-    }
-
-    #[test]
     fn is_locked_must_be_false_when_the_clause_is_not_the_reason_of_any_assignment(){
         let mut solver = Solver::new(3);
         solver.add_problem_clause(&mut vec![-1,-2,-3]);
@@ -1978,10 +1955,11 @@ mod tests {
     // clauses do not derive from the original problem statement)
     fn reduce_db_removes_worst_clauses(){
         let mut solver = Solver::new(5);
-        // 4 unassigned literals (should be deleted)
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
-        // 1 unassigned literal (shoudl remain)
         solver.add_learned_clause(vec![lit(1), lit(2)]);
+
+        solver.clauses[0].set_lbd(5); // should be dropped
+        solver.clauses[1].set_lbd(3); // should be kept
 
         assert!(solver.assign(lit(1), None).is_ok());
 
@@ -1998,10 +1976,11 @@ mod tests {
     // Nevertheless, it lets me test what I intend to test (and just that!)
     fn reduce_db_does_not_remove_locked_clauses(){
         let mut solver = Solver::new(5);
-        // learned[0] : 3 unassigned literals (should be deleted)
         solver.add_learned_clause(vec![lit(2), lit(1), lit(3), lit(4), lit(5)]);
-        // learned[1] : 1 unassigned literal (shoudl remain)
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3)]);
+
+        solver.clauses[0].set_lbd(5); // should be dropped, but it is locked
+        solver.clauses[1].set_lbd(2); // should be kept
 
         assert!(solver.assign(lit(1), None   ).is_ok());
         assert!(solver.assign(lit(2), Some(0)).is_ok());
@@ -2015,16 +1994,19 @@ mod tests {
     #[test]
     fn reduce_db_does_not_impact_problem_clauses(){
         let mut solver = Solver::new(5);
-        // constaint -> all unassigned
         solver.add_problem_clause(&mut vec![2, 3, 4, 5]);
-        // learned -> 1
-        solver.add_learned_clause(vec![lit(1)]);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(4)]);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
+
+        solver.clauses[0].set_lbd(18); // should be removed but it is a problem clause
+        solver.clauses[1].set_lbd(5);  // must be dropped
+        solver.clauses[2].set_lbd(4);  // must be kept
 
         assert!(solver.assign(lit(1), None).is_ok());
 
-        assert_eq!(1, solver.clauses.len());
+        assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
-        assert_eq!(1, solver.clauses.len());
+        assert_eq!(2, solver.clauses.len());
         assert!(! solver.clauses[0].is_learned);
     }
 
@@ -2036,21 +2018,6 @@ mod tests {
         solver.add_learned_clause(vec![lit(4), lit(3)]);
         solver.add_learned_clause(vec![lit(5), lit(3)]);
         solver.add_learned_clause(vec![lit(3)]); // ELIDED
-
-        assert_eq!(4, solver.clauses.len());
-        solver.reduce_db();
-        assert_eq!(4, solver.clauses.len());
-    }
-
-    #[test]
-    fn reduce_db_does_not_remove_clauses_of_size_2_or_less_under_assignment(){
-        let mut solver = Solver::new(5);
-        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
-        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
-        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
-        solver.add_learned_clause(vec![lit(3), lit(5)]);
-
-        assert!(solver.assign(lit(3), None).is_ok());
 
         assert_eq!(4, solver.clauses.len());
         solver.reduce_db();

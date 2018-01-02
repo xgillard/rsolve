@@ -1,5 +1,6 @@
 use std::ops::*;
 use std::fmt;
+use std::u32;
 use super::*;
 
 // -----------------------------------------------------------------------------------------------
@@ -37,14 +38,18 @@ pub struct Clause {
     /// it was learned during search
     pub is_learned: bool,
     /// This is an heuristic 'quality' score associated with each of the clauses which is used
-    /// by the solver's clause management (removal) strategy
-    score: usize
+    /// by the solver's clause management (removal) strategy. It measures the number of propagation
+    /// blocks that were necessary for this clause to become falsified.
+    /// See `Predicting Learnt Clauses Quality in Modern SAT Solvers.` Audemard, Simon in aaai2009
+    /// for the full details about literal block distance.
+    lbd: u32
+
 }
 
 impl Clause {
     /// Creates a new clause from its terms
     pub fn new(terms: Vec<Literal>, is_learned: bool) -> Clause {
-        Clause{ literals: terms, score : 0, is_learned }
+        Clause{ literals: terms, lbd : u32::max_value(), is_learned }
     }
 
     /// Tries to find a new literal that can be watched by the given clause.
@@ -85,12 +90,12 @@ impl Clause {
     }
 
     /// Returns the heuristic 'quality' score associated with this clause
-    pub fn get_score(&self) -> usize {
-        self.score
+    pub fn get_lbd(&self) -> u32 {
+        self.lbd
     }
     /// Changes the heuristic 'quality' score associated with this clause
-    pub fn set_score(&mut self, score: usize) {
-        self.score = score;
+    pub fn set_lbd(&mut self, lbd: u32) {
+        self.lbd = lbd;
     }
 }
 

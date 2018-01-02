@@ -16,6 +16,7 @@ use bzip2::bufread::BzDecoder;
 use flate2::bufread::GzDecoder;
 
 // TODO: Solver.rs -> partial restarts
+// TODO: Solver.rs -> LBD
 // TODO: dimacs.rs -> *
 // TODO: etre plus intelligent (LRB, inprocessing)
 //       - minimiser a base de propagation
