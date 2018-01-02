@@ -19,6 +19,9 @@ type Reason   = ClauseId;
 #[derive(Debug)]
 pub struct Solver {
     // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    /// A flag indicating whether or not a DRUP proof should be logged while solving the problem.
+    pub drup: bool,
+    // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The number of decisions that have been taken (so far) during the search
     pub nb_decisions : uint,
     /// The number of conflicts that have occurred since the last restart
@@ -87,6 +90,7 @@ pub struct Solver {
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
+            drup         : false,
             nb_decisions : 0,
             nb_restarts  : 0,
             nb_conflicts_since_restart: 0,
@@ -137,6 +141,11 @@ impl Solver {
     /// within `add_problem_clause` and `add_learned_clause`. The latter two are the ones you should
     /// really be using instead of the macro.
     fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drup {
+            println!("a {}", clause.to_dimacs());
+        }
+
         let c_id= self.clauses.len();
 
         // if it is the empty clause that we're adding, the problem is solved and provably unsat
@@ -199,6 +208,11 @@ impl Solver {
     }
 
     fn remove_clause(&mut self, clause_id: ClauseId) {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drup {
+            println!("d {}", self.clauses[clause_id].to_dimacs());
+        }
+
         let last = self.clauses.len() - 1;
 
         // Remove clause_id from the watchers lists

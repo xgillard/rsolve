@@ -97,6 +97,17 @@ impl Clause {
     pub fn set_lbd(&mut self, lbd: u32) {
         self.lbd = lbd;
     }
+
+    /// Returns a DIMACS string representation of this clause
+    pub fn to_dimacs(&self) -> String {
+        let mut out = String::new();
+
+        for l in self.literals.iter() {
+            out.push_str(&format!("{} ", l.to_isize()));
+        }
+        out.push_str("0");
+        return out;
+    }
 }
 
 impl Deref for Clause {

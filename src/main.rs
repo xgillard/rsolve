@@ -22,14 +22,14 @@ use flate2::bufread::GzDecoder;
 //       - minimiser a base de propagation
 //       - enlever les clauses redondantes s/ base de propag.
 //       - sinon, subsumption, self-subsuming resolution, VE b/ substitution
-// TODO: supporter plus d'options DRUP, print_model
 // TODO: add getters for public fields of the solver
 
 /// This simple structure encapsulates the options and arguments that are passed to the solver using
 /// the command line interface (cli).
 struct CliArgs {
     filename   : Option<String>,
-    print_model: bool
+    print_model: bool,
+    drup       : bool  // See: ''Trimming while Checking Clausal Proofs'' -- Heule, Hunt, Wetzler (FMCAD), 2013
 }
 
 fn main() {
@@ -38,8 +38,8 @@ fn main() {
     let mut lines = input(&args).lines();
     let mut solver = parse_header(&mut lines);
 
+    solver.drup = args.drup;
     load_clauses(&mut solver, &mut lines);
-
     let satisfiable = solver.solve();
 
     print_result(&solver,&args, satisfiable);
@@ -89,7 +89,7 @@ fn print_model(solver: &Solver) {
 /// This function parses the command line arguments of the program and returns an object
 /// representing these arguments.
 fn arguments() -> CliArgs {
-    let mut options= CliArgs { filename: None, print_model: false };
+    let mut options= CliArgs { filename: None, print_model: false, drup: false };
 
     // This is where we actually handle the command line arguments with Argparse (like we'd do in
     // python3). Note, this scope is necessary since it allows us to close the borrow scope for
@@ -109,6 +109,11 @@ fn arguments() -> CliArgs {
             .add_option(&["-p", "--print-model"],
                         StoreTrue,
                         "Prints a model when the instance is proven satisfiable.");
+
+        parser.refer(&mut options.drup)
+            .add_option(&["-d", "--drup"],
+                        StoreTrue,
+                        "Prints a proof of unsatisfiability in DRUP format (aka UNSAT certificate).");
 
         parser.parse_args_or_exit();
     }
