@@ -203,9 +203,9 @@ impl Solver {
             let watched = self.clauses[clause_id][i];
 
             let nb_watchers = self.watchers[watched].len();
-            for i in 0..nb_watchers {
-                if self.watchers[watched][i] == clause_id {
-                    self.watchers[watched].swap_remove(i);
+            for j in (0..nb_watchers).rev() {
+                if self.watchers[watched][j] == clause_id {
+                    self.watchers[watched].swap_remove(j);
                     break;
                 }
             }
@@ -273,8 +273,8 @@ impl Solver {
 
             match self.propagate() {
                 Some(conflict) => {
-                    self.nb_conflicts_since_restart += 1;
                     self.nb_conflicts += 1;
+                    self.nb_conflicts_since_restart += 1;
 
                     // if there is a conflict, I try to resolve it. But if I can't, that
                     // means that the problem is UNSAT
@@ -654,6 +654,7 @@ impl Solver {
         let mut remove_agenda = vec![];
         for id in clause_ids {
             if counter >= limit            { break;    }
+            if !self.clauses[id].is_learned{ continue; }
             if self.clauses[id].len() <= 2 { continue; }
             if self.is_locked(id) { continue; }
 
@@ -676,7 +677,7 @@ impl Solver {
             // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
             // the agenda (to avoid panicking on out of bounds index)
             if id != last {
-                for j in i..nb_delete {
+                for j in i+1..nb_delete {
                     if remove_agenda[j] == last {
                         remove_agenda[j] = id;
                     }
