@@ -179,6 +179,9 @@ impl Solver {
         c.sort_unstable_by(|x, y| x.abs().cmp(&y.abs()));
 
         for i in (1..c.len()).rev() {
+            // remove duplicate literals
+            if c[i] ==  c[i-1] { c.swap_remove(i); continue; }
+            // do not add tautological clauses to the database
             if c[i] == -c[i-1] { return Ok(CLAUSE_ELIDED); }
         }
 
