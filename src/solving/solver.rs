@@ -632,6 +632,21 @@ impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- CLAUSE DATABASE REDUCTION ------------------------------------//
     // -------------------------------------------------------------------------------------------//
+
+    /// This function tells whether or not a clause can be forgotten by the solver.
+    /// Normally all clauses that are learned and not being used at the moment (not locked) can
+    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
+    /// knowledge and keeps all the the clauses that are 'good enough'.
+    fn can_forget(&self, clause_id: ClauseId) -> bool {
+        let ref clause = self.clauses[clause_id];
+
+        clause.is_learned
+            && clause.get_score() > 2
+            && clause.len() > 2
+            && !self.is_locked(clause_id)
+    }
+
+    /// Forgets some of the less useful clauses to speed up the propagation process.
     fn reduce_db(&mut self) {
         // reset all heuristic quality scores
         let nb_clauses = self.clauses.len();
@@ -641,30 +656,18 @@ impl Solver {
         }
 
         // sort the clauses according to their heuristic quality score
-        let mut clause_ids: Vec<ClauseId> = (0..nb_clauses).collect();
-        clause_ids.sort_unstable_by_key(|c| self.clauses[*c].get_score() );
-        clause_ids.reverse();
+        let mut remove_agenda: Vec<ClauseId> = (0..nb_clauses)
+            .filter(|id| self.can_forget(*id))
+            .collect();
+
+        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_score());
+        remove_agenda.reverse();
 
         // reduces the size of the database by removing half of the worst clauses.
         // It should be noted though that unary and binary clauses are *never* removed
         // and that 'locked' clauses (those who are reason for some assignment) are kept as well
-        let mut counter = 0;
-        let limit = self.clauses.len() / 2;
-
-        let mut remove_agenda = vec![];
-        for id in clause_ids {
-            if counter >= limit            { break;    }
-            if !self.clauses[id].is_learned{ continue; }
-            if self.clauses[id].len() <= 2 { continue; }
-            if self.is_locked(id) { continue; }
-
-            // if the clause is unit or almost, *don't* remove it !
-            if self.clauses[id].get_score() <= 2 { break;    }
-
-            // remember that we'll need to delete that clause
-            remove_agenda.push(id);
-            counter+= 1;
-        }
+        let limit = self.nb_learned / 2;
+        remove_agenda.truncate(limit);
 
         // Actually proceed to the clause deletion
         let nb_delete = remove_agenda.len();
