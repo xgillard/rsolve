@@ -15,6 +15,8 @@ use xz2::bufread::XzDecoder;
 use bzip2::bufread::BzDecoder;
 use flate2::bufread::GzDecoder;
 
+use std::time::*;
+
 // TODO: Solver.rs -> partial restarts
 // TODO: Solver.rs -> LBD
 // TODO: dimacs.rs -> *
@@ -33,6 +35,8 @@ struct CliArgs {
 }
 
 fn main() {
+    let now = SystemTime::now();
+
     print_header();
     let args = arguments();
     let mut lines = input(&args).lines();
@@ -40,9 +44,15 @@ fn main() {
 
     solver.drup = args.drup;
     load_clauses(&mut solver, &mut lines);
+
     let satisfiable = solver.solve();
 
-    print_result(&solver,&args, satisfiable);
+    let duration = match now.elapsed() {
+        Ok(t) => t,
+        Err(t)=> t.duration() // totally unlikely !!!
+    };
+
+    print_result(&solver,&args, satisfiable, &duration);
 }
 
 fn print_header() {
@@ -54,7 +64,7 @@ fn print_header() {
     println!("c ==============================================================================");
 }
 
-fn print_result(solver: &Solver, config: &CliArgs, satisfiable: bool){
+fn print_result(solver: &Solver, config: &CliArgs, satisfiable: bool, elapsed: &Duration){
     if satisfiable {
         println!("s SATISFIABLE");
 
@@ -63,9 +73,12 @@ fn print_result(solver: &Solver, config: &CliArgs, satisfiable: bool){
     } else {
         println!("s UNSATISFIABLE");
     }
+
+    let elapsed_time = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 * 1e-9;
     println!("c ------------------------------------------------------------------------------");
-    println!("c nb_conflicts {}", solver.nb_conflicts);
-    println!("c nb_restarts  {}", solver.nb_restarts);
+    println!("c nb_conflicts {}"  , solver.nb_conflicts);
+    println!("c nb_restarts  {}"  , solver.nb_restarts);
+    println!("c elapsed time {:.3} s", elapsed_time);
     println!("c ******************************************************************************");
 }
 
