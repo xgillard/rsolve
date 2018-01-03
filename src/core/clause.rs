@@ -67,7 +67,7 @@ impl Clause {
     ///           Unassigned, then the clause is unit. Otherwise, the clause is conflicting and a
     ///           conflict resolution procedure should be started
     pub fn find_new_literal(&mut self, watched:Literal, valuation:&Valuation) -> Result<Literal, Literal> {
-        let mut literals = &mut self.literals;
+        let literals = &mut self.literals;
 
         // Make sure that other WL is at position zero. This way, whenever the clause
         // becomes unit, we are certain to respect invariant B.

@@ -17,14 +17,16 @@ use flate2::bufread::GzDecoder;
 
 use std::time::*;
 
-// TODO: Solver.rs -> partial restarts
-// TODO: Solver.rs -> LBD
-// TODO: dimacs.rs -> *
-// TODO: etre plus intelligent (LRB, inprocessing)
-//       - minimiser a base de propagation
-//       - enlever les clauses redondantes s/ base de propag.
-//       - sinon, subsumption, self-subsuming resolution, VE b/ substitution
-// TODO: add getters for public fields of the solver
+// TODO: Test - Solver.rs -> partial restarts
+// TODO: Test - Solver.rs -> LBD
+// TODO: Test - dimacs.rs -> *
+// TODO: Dev  - LRB
+// TODO: Dev  - LCM
+// TODO: Dev  - subsumption
+// TODO: Dev  - self-subsuming resolution
+// TODO: Dev  - variable-elimination
+// TODO: Dev  - unhiding
+// TODO: Ref. - Add getters for public fields of the solver
 
 /// This simple structure encapsulates the options and arguments that are passed to the solver using
 /// the command line interface (cli).
