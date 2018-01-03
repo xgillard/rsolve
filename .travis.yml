@@ -1,17 +1,27 @@
 language: rust
 os      : 
   - linux
-  - osx
-after_success: |
-  if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then 
-    sudo apt-get install binutils-dev libcurl4-openssl-dev libelf-dev libdw-dev &&
-    wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
-    tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
-    sudo make install && cd ../.. && 
-    for file in target/debug/rsolve-*[^\.d]; do 
-      mkdir -p "target/cov/$(basename $file)"
-      kcov --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov/$(basename $file)" "$file"; 
-    done &&
-    bash <(curl -s https://codecov.io/bash) &&
-    echo "Uploaded to codecov.io" ;
-  fi
+  #- osx
+
+script:
+  #- cargo test --release
+  - |
+          if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then 
+            sudo apt-get install binutils-dev libcurl4-openssl-dev libelf-dev libdw-dev &&
+            wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
+            tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
+            sudo make install && cd ../.. ;
+          fi
+  - cargo test --lib --no-run
+  - | 
+          if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then 
+            for file in target/debug/rsolve-*; do 
+              if [[ "$file" != *\.d ]]; then
+                echo "Report generated for $file" &&
+                mkdir -p "target/cov/$(basename $file)" && 
+                kcov --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov/$(basename $file)" "$file" ; 
+              fi;
+            done &&
+            bash <(curl -s https://codecov.io/bash) &&
+            echo "Uploaded to codecov.io" ;
+          fi
