@@ -214,6 +214,7 @@ impl Solver {
             let clause_id = result.unwrap();
             let lbd = self.literal_block_distance(clause_id);
             self.clauses[clause_id].set_lbd(lbd);
+            self.clauses[clause_id].set_lbd_recently_updated(true);
         }
 
         return result;
@@ -555,6 +556,7 @@ impl Solver {
 
                         if lbd < cause.get_lbd() {
                             cause.set_lbd(lbd);
+                            cause.set_lbd_recently_updated(true);
                         }
 
                         for l in cause.iter().skip(1) {
@@ -681,6 +683,7 @@ impl Solver {
         clause.is_learned
             && clause.get_lbd() > 2
             && clause.len() > 2
+            && !clause.is_lbd_recently_updated()
             && !self.is_locked(clause_id)
     }
 
@@ -718,6 +721,11 @@ impl Solver {
                     }
                 }
             }
+        }
+
+        // Remove 'protection' on all the clauses
+        for c in self.clauses.iter_mut() {
+            c.set_lbd_recently_updated(false);
         }
     }
 
@@ -1986,6 +1994,9 @@ mod tests {
         solver.clauses[0].set_lbd(5); // should be dropped
         solver.clauses[1].set_lbd(3); // should be kept
 
+        solver.clauses[0].set_lbd_recently_updated(false);
+        solver.clauses[1].set_lbd_recently_updated(false);
+
         assert!(solver.assign(lit(1), None).is_ok());
 
         assert_eq!(2, solver.clauses.len());
@@ -2027,6 +2038,10 @@ mod tests {
         solver.clauses[1].set_lbd(5);  // must be dropped
         solver.clauses[2].set_lbd(4);  // must be kept
 
+        solver.clauses[0].set_lbd_recently_updated(false);
+        solver.clauses[1].set_lbd_recently_updated(false);
+        solver.clauses[2].set_lbd_recently_updated(false);
+
         assert!(solver.assign(lit(1), None).is_ok());
 
         assert_eq!(3, solver.clauses.len());
@@ -2059,10 +2074,48 @@ mod tests {
         solver.clauses[0].set_lbd(3);
         solver.clauses[1].set_lbd(3);
         solver.clauses[2].set_lbd(3);
+        solver.clauses[0].set_lbd_recently_updated(false);
+        solver.clauses[1].set_lbd_recently_updated(false);
+        solver.clauses[2].set_lbd_recently_updated(false);
 
         assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
         assert_eq!(2, solver.clauses.len());
+    }
+
+    #[test]
+    fn reduce_db_does_not_remove_recent_clauses(){
+        let mut solver = Solver::new(5);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
+
+        solver.clauses[0].set_lbd(3);
+        solver.clauses[1].set_lbd(3);
+        solver.clauses[2].set_lbd(3);
+
+        assert_eq!(3, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(3, solver.clauses.len());
+    }
+
+    #[test]
+    fn reduce_db_does_not_remove_clauses_having_a_recently_updated_lbd(){
+        let mut solver = Solver::new(5);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
+
+        solver.clauses[0].set_lbd(3);
+        solver.clauses[1].set_lbd(3);
+        solver.clauses[2].set_lbd(3);
+        solver.clauses[0].set_lbd_recently_updated(true);
+        solver.clauses[1].set_lbd_recently_updated(true);
+        solver.clauses[2].set_lbd_recently_updated(true);
+
+        assert_eq!(3, solver.clauses.len());
+        solver.reduce_db();
+        assert_eq!(3, solver.clauses.len());
     }
 
     fn get_last_constraint(solver : &Solver) -> ClauseId {

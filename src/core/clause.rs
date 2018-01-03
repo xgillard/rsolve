@@ -42,14 +42,18 @@ pub struct Clause {
     /// blocks that were necessary for this clause to become falsified.
     /// See `Predicting Learnt Clauses Quality in Modern SAT Solvers.` Audemard, Simon in aaai2009
     /// for the full details about literal block distance.
-    lbd: u32
-
+    lbd: u32,
+    /// This flag indicates whether or not the LBD of this clause has 'recently' been updated. That
+    /// is to say, it tells whether or not the LBD of this clause has been improved since the last
+    /// round of database reduction. This indication is helpful in the sense that it helps protecting
+    /// against deletion the clauses that have recently been of interest.
+    lbd_recently_updated: bool
 }
 
 impl Clause {
     /// Creates a new clause from its terms
     pub fn new(terms: Vec<Literal>, is_learned: bool) -> Clause {
-        Clause{ literals: terms, lbd : u32::max_value(), is_learned }
+        Clause{ literals: terms, is_learned, lbd : u32::max_value(), lbd_recently_updated: false }
     }
 
     /// Tries to find a new literal that can be watched by the given clause.
@@ -96,6 +100,13 @@ impl Clause {
     /// Changes the heuristic 'quality' score associated with this clause
     pub fn set_lbd(&mut self, lbd: u32) {
         self.lbd = lbd;
+    }
+
+    pub fn is_lbd_recently_updated(&self) -> bool {
+        self.lbd_recently_updated
+    }
+    pub fn set_lbd_recently_updated(&mut self, updated: bool) {
+        self.lbd_recently_updated = updated;
     }
 
     /// Returns a DIMACS string representation of this clause
