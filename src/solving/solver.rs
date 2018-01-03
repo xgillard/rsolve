@@ -209,6 +209,11 @@ impl Solver {
 
         if result.is_ok() && result.unwrap() != CLAUSE_ELIDED {
             self.nb_learned += 1;
+
+            // set an initial lbd for learned clauses
+            let clause_id = result.unwrap();
+            let lbd = self.literal_block_distance(clause_id);
+            self.clauses[clause_id].set_lbd(lbd);
         }
 
         return result;
@@ -2050,6 +2055,10 @@ mod tests {
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
+
+        solver.clauses[0].set_lbd(3);
+        solver.clauses[1].set_lbd(3);
+        solver.clauses[2].set_lbd(3);
 
         assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
