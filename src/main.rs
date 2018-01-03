@@ -128,7 +128,7 @@ fn arguments() -> CliArgs {
         parser.refer(&mut options.drat)
             .add_option(&["-d", "--drat"],
                         StoreTrue,
-                        "Prints a proof of unsatisfiability in DRUP format (aka UNSAT certificate).");
+                        "Prints a proof of unsatisfiability in DRAT format (aka UNSAT certificate).");
 
         parser.parse_args_or_exit();
     }
