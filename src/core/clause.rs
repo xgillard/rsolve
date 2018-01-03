@@ -289,4 +289,22 @@ mod tests {
         let watched = Literal::from(1);
         assert_eq!(clause.find_new_literal(watched, &valuation), Err(Literal::from(2)))
     }
+
+    #[test]
+    fn to_dimacs_must_yield_a_dimacs_string_corresponding_to_the_clause() {
+        let clause = Clause::new(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)], false);
+
+        assert_eq!("1 2 4 8 0", &clause.to_dimacs());
+    }
+
+    #[test]
+    fn to_dimacs_must_also_work_for_the_empty_clause() {
+        let clause = Clause::new(vec![], false);
+
+        assert_eq!("0", &clause.to_dimacs());
+    }
 }

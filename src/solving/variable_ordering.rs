@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn pop_must_fail_on_empty_heap(){
+    fn pop_top_must_fail_on_empty_heap(){
         let mut tested = VariableOrdering::new(MAX);
         // empty it
         for _ in 1..MAX+1 { tested.pop_top(); }
@@ -433,5 +433,48 @@ mod tests {
 
         tested.bump(var(3));
         assert_eq!(2.0, tested.get_score(var(3)));
+    }
+
+    #[test]
+    fn decay_should_only_update_the_vsids_increment() {
+        let mut tested = VariableOrdering::new(MAX);
+
+        let increment_before = tested.vsids_increment;
+        let scores_before : Vec<f64> = (1..MAX)
+        .map(|v| tested.get_score(var(v)))
+        .collect();
+
+
+        tested.decay();
+
+        let increment_after = tested.vsids_increment;
+        let scores_after : Vec<f64> = (1..MAX)
+        .map(|v| tested.get_score(var(v)))
+        .collect();
+
+        assert_eq!(increment_after, increment_before * 1.0/tested.vsids_decay );
+        assert_eq!(scores_before, scores_after);
+    }
+
+    #[test]
+    fn decay_should_trigger_a_rescale_when_vsids_increment_grows_too_high() {
+        let mut tested = VariableOrdering::new(MAX);
+
+        tested.vsids_increment = 1e100; // this is the limit which will provoke a rescale
+
+        let increment_before = tested.vsids_increment;
+        let scores_rescaled : Vec<f64> = (1..MAX)
+            .map(|v| tested.get_score(var(v)) * 1e-100)
+            .collect();
+
+        tested.decay();
+
+        let increment_after = tested.vsids_increment;
+        let scores_after : Vec<f64> = (1..MAX)
+            .map(|v| tested.get_score(var(v)))
+            .collect();
+
+        assert_eq!(increment_after, increment_before * 1.0/tested.vsids_decay * 1e-100 );
+        assert_eq!(scores_rescaled, scores_after);
     }
 }
