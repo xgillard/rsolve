@@ -5,6 +5,8 @@ after_success: |
   tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
   sudo make install && cd ../.. && 
   for file in target/debug/rsolve-*[^\.d]; do 
-    kcov --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov" "$file"; 
+    mkdir -p "target/cov/$(basename $file)"
+    kcov --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov/$(basename $file)" "$file"; 
   done &&
-  kcov --merge --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov" "target/cov"
+  bash <(curl -s https://codecov.io/bash) &&
+  echo "Uploaded to codecov.io" 
