@@ -23,8 +23,8 @@ type Reason   = ClauseId;
 #[derive(Debug)]
 pub struct Solver {
     // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    /// A flag indicating whether or not a DRUP proof should be logged while solving the problem.
-    pub drup: bool,
+    /// A flag indicating whether or not a DRAT proof should be logged while solving the problem.
+    pub drat: bool,
     // ~~~ # Statistics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The number of decisions that have been taken (so far) during the search
     pub nb_decisions : uint,
@@ -94,7 +94,7 @@ pub struct Solver {
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
-            drup         : false,
+            drat: false,
             nb_decisions : 0,
             nb_restarts  : 0,
             nb_conflicts_since_restart: 0,
@@ -146,7 +146,7 @@ impl Solver {
     /// really be using instead of the macro.
     fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
         // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drup {
+        if self.drat {
             println!("a {}", clause.to_dimacs());
         }
 
@@ -222,7 +222,7 @@ impl Solver {
 
     fn remove_clause(&mut self, clause_id: ClauseId) {
         // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drup {
+        if self.drat {
             println!("d {}", self.clauses[clause_id].to_dimacs());
         }
 

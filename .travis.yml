@@ -1,8 +1,10 @@
 language: rust
 after_success: |
-  sudo apt-get install libcurl4-openssl-dev libelf-dev libdw-dev &&
+  sudo apt-get install binutils-dev libcurl4-openssl-dev libelf-dev libdw-dev &&
   wget https://github.com/SimonKagstrom/kcov/archive/master.tar.gz &&
   tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
-  sudo make install && cd ../.. &&
-  for file in target/debug/rsolve-*[^\.d]; do mkdir -p "target/cov/$(basename $file)"; ./kcov-build/usr/local/bin/kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
-  echo "Uploading coverage stats to coveralls.io"
+  sudo make install && cd ../.. && 
+  for file in target/debug/rsolve-*[^\.d]; do 
+    kcov --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov" "$file"; 
+  done &&
+  kcov --merge --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo --include-pattern=$PWD "target/cov" "target/cov"

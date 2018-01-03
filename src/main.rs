@@ -33,7 +33,7 @@ use std::time::*;
 struct CliArgs {
     filename   : Option<String>,
     print_model: bool,
-    drup       : bool  // See: ''Trimming while Checking Clausal Proofs'' -- Heule, Hunt, Wetzler (FMCAD), 2013
+    drat       : bool  // See: ''Trimming while Checking Clausal Proofs'' -- Heule, Hunt, Wetzler (FMCAD), 2013
 }
 
 fn main() {
@@ -44,7 +44,7 @@ fn main() {
     let mut lines = input(&args).lines();
     let mut solver = parse_header(&mut lines);
 
-    solver.drup = args.drup;
+    solver.drat = args.drat;
     load_clauses(&mut solver, &mut lines);
 
     let satisfiable = solver.solve();
@@ -104,7 +104,7 @@ fn print_model(solver: &Solver) {
 /// This function parses the command line arguments of the program and returns an object
 /// representing these arguments.
 fn arguments() -> CliArgs {
-    let mut options= CliArgs { filename: None, print_model: false, drup: false };
+    let mut options= CliArgs { filename: None, print_model: false, drat: false };
 
     // This is where we actually handle the command line arguments with Argparse (like we'd do in
     // python3). Note, this scope is necessary since it allows us to close the borrow scope for
@@ -125,8 +125,8 @@ fn arguments() -> CliArgs {
                         StoreTrue,
                         "Prints a model when the instance is proven satisfiable.");
 
-        parser.refer(&mut options.drup)
-            .add_option(&["-d", "--drup"],
+        parser.refer(&mut options.drat)
+            .add_option(&["-d", "--drat"],
                         StoreTrue,
                         "Prints a proof of unsatisfiability in DRUP format (aka UNSAT certificate).");
 

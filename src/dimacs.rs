@@ -50,8 +50,12 @@ pub fn load_clauses<Source>(solver: &mut Solver, input: &mut Lines<Source>)
     }
 
     if !ongoing_clause.is_empty() {
-        #[allow(unused_must_use)]
-        solver.add_problem_clause(&mut ongoing_clause);
+        // Adds the very last clause (even if the last trailing zero is not present).
+        // Note: the 'return' statement is useless, it only serves the point of using the result
+        // of `solver.add_problem_clause()` and removing a compilation warning while doing so.
+        if solver.add_problem_clause(&mut ongoing_clause).is_err() {
+            return; /* actually, this means ignore the error: solver is in unsat = true mode. */
+        }
     }
 
 }
