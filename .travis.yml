@@ -5,3 +5,4 @@ after_success: |
   tar xzf master.tar.gz && mkdir kcov-master/build && cd kcov-master/build && cmake .. && make &&
   sudo make install && cd ../.. &&
   for file in target/debug/rsolve-*[^\.d]; do mkdir -p "target/cov/$(basename $file)"; ./kcov-build/usr/local/bin/kcov --coveralls-id=$TRAVIS_JOB_ID --exclude-pattern=/.cargo,/usr/lib --verify "target/cov/$(basename $file)" "$file"; done &&
+  echo "Uploading coverage stats to coveralls.io"
