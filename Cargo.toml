@@ -20,3 +20,10 @@ lto = true
 opt-level = 3
 lto = true
 
+[badges]
+# Continuous Integration on Linux, OSX
+travis-ci = { repository = "xgillard/rsolve", branch = "master" }
+# Continuous Integration on Windows
+appveyor  = { repository = "xgillard/rsolve", branch = "master", service = "github" }
+# Code coverage
+codecov   = { repository = "xgillard/rsolve", branch = "master", service = "github" }
