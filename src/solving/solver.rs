@@ -1,8 +1,12 @@
+extern crate fixedbitset;
+
 use std::usize;
 
 use core::*;
 use collections::*;
 use solving::*;
+
+use self::fixedbitset::FixedBitSet;
 
 type  ClauseId = usize;
 const CLAUSE_ELIDED: ClauseId = usize::MAX;
@@ -738,21 +742,20 @@ impl Solver {
         let ref clause = self.clauses[clause_id];
         if clause.get_lbd() <= 2 { return clause.get_lbd(); }
 
-        let mut min_level = 0;
-        let mut max_level = 0;
+        let nb_levels = self.level.len();
+        let mut blocks = FixedBitSet::with_capacity(nb_levels);
+        let mut lbd = 0;
 
         for lit in clause.iter() {
-            let level = self.level[lit.var()];
+            let level = self.level[lit.var()] as usize;
 
-            if level < min_level {
-                min_level = level;
-            }
-            if level > max_level {
-                max_level = level;
+            if !blocks.contains(level) {
+                blocks.insert(level);
+                lbd += 1;
             }
         }
 
-        return max_level - min_level;
+        return lbd;
     }
 
     // -------------------------------------------------------------------------------------------//
