@@ -369,15 +369,13 @@ impl Solver {
             Bool::True  => Ok(()),
             Bool::False => Err(()),
             Bool::Undef => {
-                let has_no_reason = reason.is_none();
-
                 self.valuation.set_value(lit, Bool::True);
                 self.reason[lit.var()] = reason;
-                self.level [lit.var()] = self.nb_decisions;
                 self.prop_queue.push(!lit);
 
+
                 // if its a decision, make sure to take that into account
-                if has_no_reason {
+                if reason.is_none() {
                     self.nb_decisions += 1;
                     self.decisions.push(lit.var());
                     self.decisions_pos.push(self.prop_queue.len()-1)
@@ -387,6 +385,24 @@ impl Solver {
                 if self.nb_decisions == 0 {
                     self.flags[lit].set(Flag::IsForced);
                     self.forced += 1;
+                }
+
+                // Level can only be set now that the nb_decisions has been updated if need be
+                self.level [lit.var()] = self.nb_decisions;
+
+                // Glucose-like database management: dynamically improve the LBD
+                // if we can show that it is improved.
+                if reason.is_some() {
+                    let reason_id = reason.unwrap();
+                    if reason_id != CLAUSE_ELIDED {
+                        let lbd = self.literal_block_distance(reason_id);
+
+                        let cause = &mut self.clauses[reason_id];
+                        if lbd < cause.get_lbd() {
+                            cause.set_lbd(lbd);
+                            cause.set_lbd_recently_updated(true);
+                        }
+                    }
                 }
 
                 Ok(())
@@ -545,17 +561,7 @@ impl Solver {
                     CLAUSE_ELIDED => {/* Ignore */},
                     // will always happen
                     reason_id => {
-                        // Glucose-like database management: dynamically improve the LBD
-                        // if we can show that it is improved.
-                        let lbd = self.literal_block_distance(reason_id);
-
                         let ref mut cause = self.clauses[reason_id];
-
-                        if lbd < cause.get_lbd() {
-                            cause.set_lbd(lbd);
-                            cause.set_lbd_recently_updated(true);
-                        }
-
                         for l in cause.iter().skip(1) {
                             Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
                         }
@@ -753,7 +759,7 @@ impl Solver {
         if clause.get_lbd() <= 2 { return clause.get_lbd(); }
 
         let nb_levels = self.level.len();
-        let mut blocks = FixedBitSet::with_capacity(nb_levels);
+        let mut blocks = FixedBitSet::with_capacity(nb_levels +1 );
         let mut lbd = 0;
 
         for lit in clause.iter() {
@@ -2294,24 +2300,155 @@ mod tests {
 
     #[test]
     fn add_learned_clause_must_set_an_initial_lbd(){
-        // TODO
+        let mut solver = Solver::new(6);
+
+        solver.level[var(1)] = 4;
+        solver.level[var(3)] = 5;
+        solver.level[var(5)] = 5;
+
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+
+        assert_eq!(2, solver.clauses[0].get_lbd());
     }
 
     #[allow(non_snake_case)]
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__no_gap(){
-        // TODO all blocks are subsequent
+        let mut solver = Solver::new(6);
+
+        solver.level[var(1)] = 3;
+        solver.level[var(2)] = 4;
+        solver.level[var(3)] = 5;
+        solver.level[var(4)] = 4;
+        solver.level[var(5)] = 5;
+
+        solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
+
+        assert_eq!(3, solver.literal_block_distance(0));
     }
 
     #[allow(non_snake_case)]
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__with_gap(){
-        // TODO not all blocks are contiguous
+        // not all blocks are contiguous
+        let mut solver = Solver::new(6);
+
+        solver.level[var(1)] = 3;
+        solver.level[var(2)] = 4;
+        solver.level[var(3)] = 6;
+        solver.level[var(4)] = 4;
+        solver.level[var(5)] = 6;
+
+        solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
+
+        assert_eq!(3, solver.literal_block_distance(0));
     }
 
     #[test]
-    fn find_first_uip_must_dynamically_update_the_lbd_when_it_is_improved(){
-        // TODO
+    fn test_level_starts_at_one_for_decisions() {
+        /*-
+         *     /---------------------\
+         *    /                      \
+         * 1 +--+---+- 3 -+     +-----+- 6
+         *       \ /       \   /
+         *        X          5
+         *       / \       /   \
+         * 2 +--+---+- 4 -+     +-----+ -6
+         *    \                      /
+         *     \--------------------/
+         * 7 ----------------------/
+         */
+        let mut solver = Solver::new(7);
+
+        solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
+        solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
+        solver.add_problem_clause(&mut vec![ 3, 4,-5]); // c2
+        solver.add_problem_clause(&mut vec![ 1, 5, 6]); // c3
+        solver.add_problem_clause(&mut vec![ 2, 5,-6]); // c4
+        solver.add_problem_clause(&mut vec![ 7, 2,-6]); // c5
+
+        assert!(solver.assign(lit(-7), None).is_ok());
+        assert!(solver.propagate().is_none());
+        assert!(solver.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+        assert!(solver.assign(lit(-2), None).is_ok());
+        assert!(solver.propagate().is_some());
+
+        assert_eq!(1, solver.level[var(7)]);
+        assert_eq!(2, solver.level[var(1)]);
+        assert_eq!(3, solver.level[var(2)]);
+        assert_eq!(3, solver.level[var(3)]);
+        assert_eq!(3, solver.level[var(4)]);
+        assert_eq!(3, solver.level[var(5)]);
+        assert_eq!(3, solver.level[var(6)]);
+    }
+
+    #[test]
+    fn test_level_is_zero_for_forced_literals() {
+        let mut solver = Solver::new(7);
+
+        solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
+        solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
+        solver.add_problem_clause(&mut vec![ 3, 4,-5]); // c2
+        solver.add_problem_clause(&mut vec![ 1, 5, 6]); // c3
+        solver.add_problem_clause(&mut vec![ 2, 5,-6]); // c4
+        solver.add_problem_clause(&mut vec![ 7, 2,-6]); // c5
+        solver.add_problem_clause(&mut vec![4]);
+
+        assert!(solver.assign(lit(-7), None).is_ok());
+        assert!(solver.propagate().is_none());
+        assert!(solver.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+
+        assert_eq!(0, solver.level[var(4)]);
+        assert_eq!(1, solver.level[var(7)]);
+        assert_eq!(2, solver.level[var(1)]);
+        assert_eq!(2, solver.level[var(2)]);
+        // others are not set
+    }
+
+    #[test]
+    fn assign_must_dynamically_update_the_lbd_when_it_is_improved(){
+        /*-
+         *     /---------------------\
+         *    /                      \
+         * 1 +--+---+- 3 -+     +-----+- 6
+         *       \ /       \   /
+         *        X          5
+         *       / \       /   \
+         * 2 +--+---+- 4 -+     +-----+ -6
+         *    \                      /
+         *     \--------------------/
+         * 7 ----------------------/
+         */
+        let mut solver = Solver::new(7);
+
+        solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
+        solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
+        solver.add_problem_clause(&mut vec![ 3, 4,-5]); // c2
+        solver.add_problem_clause(&mut vec![ 1, 5, 6]); // c3
+        solver.add_problem_clause(&mut vec![ 2, 5,-6]); // c4
+        solver.add_problem_clause(&mut vec![ 7, 2,-6]); // c5
+
+        solver.clauses[0].set_lbd(3);
+        solver.clauses[1].set_lbd(3);
+        solver.clauses[2].set_lbd(3);
+        solver.clauses[3].set_lbd(3);
+        solver.clauses[4].set_lbd(3);
+        solver.clauses[5].set_lbd(3);
+
+        assert!(solver.assign(lit(-7), None).is_ok());
+        assert!(solver.propagate().is_none());
+        assert!(solver.assign(lit(-1), None).is_ok());
+        assert!(solver.propagate().is_none());
+        assert!(solver.assign(lit(-2), None).is_ok());
+        assert!(solver.propagate().is_some());
+
+        solver.assign(lit(-3), Some(0));
+        assert_eq!(2, solver.clauses[0].get_lbd());
+
+        solver.assign(lit(-4), Some(1));
+        assert_eq!(2, solver.clauses[1].get_lbd());
     }
 
     // TODO: tests for partial restarts (check that permutation reuse is implemented) !!
