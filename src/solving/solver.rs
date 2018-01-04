@@ -229,7 +229,7 @@ impl Solver {
         let last = self.clauses.len() - 1;
 
         // Remove clause_id from the watchers lists
-        for i in 0..2 {
+        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
             let watched = self.clauses[clause_id][i];
 
             let nb_watchers = self.watchers[watched].len();
@@ -254,7 +254,7 @@ impl Solver {
 
         if last != clause_id {
             // Replace last by clause_id in the watchers lists
-            for i in 0..2 {
+            for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
                 let watched = self.clauses[last][i];
 
                 let nb_watchers = self.watchers[watched].len();
@@ -403,10 +403,6 @@ impl Solver {
 
             let nb_propagated = self.propagated;
             let literal = self.prop_queue[nb_propagated];
-
-            if self.flags[literal].is_set(Flag::IsForced) {
-                self.reason_about_literal_being_forced(literal);
-            }
 
             let conflict = self.propagate_literal(literal);
             if conflict.is_some() {
@@ -916,82 +912,6 @@ impl Solver {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
             var_order.bump(lit.var() );
-        }
-    }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- REASONING ----------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-    /// A very simple form of simplification:
-    /// - whenever a clause contains a literal which is forced, this clause is guaranteed to remain
-    ///   true forever. Hence it can be removed.
-    /// - whenever a clause contains the negation of a literal which is forced, that literal can be
-    ///   removed from the clause.
-    fn reason_about_literal_being_forced(&mut self, lit: Literal) {
-        let db_size = self.clauses.len();
-
-        for id in (0..db_size).rev() {
-            // If it's locked, we keep it for further reference. But if it is not, we drop the clause
-            if !self.is_locked(id) && self.clauses[id].contains(&lit) {
-                self.remove_clause(id);
-                continue;
-            }
-
-            // When the literal is failed, we try to shrink the database
-            let failed = !lit;
-            if self.clauses[id].contains(&failed) {
-                self.remove_failed_lit_from_clause(failed, id);
-            }
-        }
-    }
-
-
-    fn remove_failed_lit_from_clause(&mut self, failed : Literal, clause_id: ClauseId) {
-        { // A. Effectively remove the failed literal from the clause
-            let ref mut clause = self.clauses[clause_id];
-            let c_len = clause.len();
-
-            // First, we make sure that the failed lit is not watched
-            if c_len > 1 {
-                let watched: Vec<Literal> = clause.iter()
-                    .take(2)
-                    .map(|l| *l)
-                    .collect();
-                for wl in watched {
-                    if wl == failed {
-                        match clause.find_new_literal(failed, &self.valuation) {
-                            Err(l) if l == failed => {
-                                self.is_unsat = true;
-                                return;
-                            },
-                            _ => {},
-                        }
-                    }
-                }
-            }
-
-            // then we shrink the clause
-            for j in (0..c_len).rev() {
-                if clause[j] == failed {
-                    clause.swap_remove(j);
-                    break;
-                }
-            }
-        }
-
-        { // B. Perform additional checks on the modified clause
-            // check whether the clause has become unit
-            let c_len = self.clauses[clause_id].len();
-            if c_len == 1 {
-                let assertion = self.clauses[clause_id][0];
-                self.is_unsat |= self.assign(assertion, Some(clause_id)).is_err();
-            }
-            // check whether shrinking the clause made the problem unsat
-            if c_len == 0 {
-                self.is_unsat = true;
-                return;
-            }
         }
     }
 
@@ -2373,60 +2293,17 @@ mod tests {
     }
 
     #[test]
-    fn propagate_removes_clauses_which_are_always_true() {
-        // TODO
-    }
-
-    #[test]
-    fn propagate_simplifies_clauses_with_failed_literals(){
-        // TODO
-    }
-
-    #[test]
-    fn reason_about_literal_being_forced_must_remove_clauses_which_are_always_true(){
-        // TODO what if it is locked ? Does it hurt ? to replace cause w/ elided ?
-    }
-
-    #[test]
-    fn reason_about_literal_being_forced_must_remove_failed_literals(){
-        // TODO
-    }
-
-    #[test]
-    fn remove_failed_literal_must_detect_unsatisfiability_when_no_new_wl_can_be_found(){
-        // TODO
-    }
-
-    #[test]
-    fn remove_failed_literal_must_detect_unsatisfiability_when_an_empty_clause_is_created(){
-        // TODO
-    }
-
-    #[test]
-    fn remove_failed_literal_must_detect_unsatisfiability_when_a_newly_created_unit_clause_is_conflicting(){
-        // TODO
-    }
-
-    #[test]
-    fn remove_failed_literal_must_assign_literal_when_new_unit_clause_is_detected(){
-        // TODO
-    }
-
-    #[test]
-    fn remove_failed_literal_must_effectively_remove_the_failed_literal(){
-        // TODO
-    }
-
-    #[test]
     fn add_learned_clause_must_set_an_initial_lbd(){
         // TODO
     }
 
+    #[allow(non_snake_case)]
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__no_gap(){
         // TODO all blocks are subsequent
     }
 
+    #[allow(non_snake_case)]
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__with_gap(){
         // TODO not all blocks are contiguous
