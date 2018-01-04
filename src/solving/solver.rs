@@ -2187,28 +2187,189 @@ mod tests {
     }
 
     #[test]
+    /// This test checks two features of the remove_clause function:
+    ///
+    /// A. remove_clause must remove all watchers pointing to the removed clause
+    /// B. remove_clause must redirect the watchers pointing to the last clause
     fn remove_clause_must_remove_the_clause_from_the_watched_lists(){
-        // TODO
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
+
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0, 1, 2, 3]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![2]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![3]);
+
+        solver.remove_clause(2);
+
+        let database = format!("[{}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0, 1, 2]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![2]);
     }
 
     #[test]
     fn remove_clause_must_erase_its_locking_reason_if_there_is_one(){
-        // TODO
-    }
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
 
-    #[test]
-    fn remove_clause_must_redirect_the_watcher_of_the_last_clause(){
-        // TODO
+        solver.assign(lit(4), Some(2));
+
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (solver.is_locked(2));
+        assert_eq!(solver.reason[var(4)], Some(2));
+
+        solver.remove_clause(2);
+
+        let database = format!("[{}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (!solver.is_locked(2));
+        assert_eq!(solver.reason[var(4)], None);
     }
 
     #[test]
     fn remove_clause_must_redirect_the_reason_of_the_last_clause(){
-        // TODO
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
+
+        solver.assign(lit(6), Some(3));
+
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (solver.is_locked(3));
+        assert_eq!(solver.reason[var(6)], Some(3));
+
+        solver.remove_clause(2);
+
+        let database = format!("[{}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (solver.is_locked(2));
+        assert_eq!(solver.reason[var(6)], Some(2));
     }
 
     #[test]
-    fn remove_clause_must_not_redirect_anything_when_the_last_clause_is_removed(){
-        // TODO
+    fn remove_clause_must_not_redirect_watchers_when_the_last_clause_is_removed(){
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
+
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0, 1, 2, 3]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![2]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![3]);
+
+        solver.remove_clause(3);
+
+        let database = format!("[{}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0, 1, 2]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![2]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![ ]);
+    }
+
+    #[test]
+    fn remove_clause_must_not_redirect_reason_when_the_last_clause_is_removed(){
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
+
+        solver.assign(lit(4), Some(2));
+
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+                               "Clause([Literal(6), Literal(3), Literal(5)])", // c3
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (solver.is_locked(2));
+        assert_eq!(solver.reason[var(4)], Some(2));
+
+        solver.remove_clause(3);
+
+        let database = format!("[{}, {}, {}]",
+                               "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                               "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                               "Clause([Literal(4), Literal(3), Literal(5)])", // c2
+        );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert!   (solver.is_locked(2));
+        assert_eq!(solver.reason[var(4)], Some(2));
     }
 
     #[test]
@@ -2232,7 +2393,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_failed_literal_must_detect_unsatisfiability_when_no_new_WL_can_be_found(){
+    fn remove_failed_literal_must_detect_unsatisfiability_when_no_new_wl_can_be_found(){
         // TODO
     }
 
