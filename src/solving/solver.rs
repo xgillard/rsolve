@@ -2122,7 +2122,68 @@ mod tests {
     #[test]
     fn reduce_db_must_maintain_a_coherent_clause_database() {
         // The ids of the clauses 'replacing' the removed ones must be adapted
-        // TODO
+        let mut solver = Solver::new(6);
+        solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
+        solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
+        solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
+        solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
+
+        solver.clauses[0].set_lbd(7); // c0 is the clause which will be deleted
+        solver.clauses[1].set_lbd(4);
+        solver.clauses[2].set_lbd(3);
+        solver.clauses[3].set_lbd(5); // c3 will also be deleted
+        solver.clauses[0].set_lbd_recently_updated(false);
+        solver.clauses[1].set_lbd_recently_updated(false);
+        solver.clauses[2].set_lbd_recently_updated(false);
+        solver.clauses[3].set_lbd_recently_updated(false);
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0, 1, 2, 3]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![2]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![3]);
+
+        // let's say that 2nd clause forces the value of lit(5)
+        solver.assign(lit(-4), None);
+        solver.assign(lit(-3), None);
+        solver.propagate(); // solver.assign(lit(5), Some(2));
+
+        // Ensure state before DB reduction (literals shuffled because of propagation)
+        let database = format!("[{}, {}, {}, {}]",
+                               "Clause([Literal(1), Literal(5), Literal(3)])", // c0
+                               "Clause([Literal(2), Literal(5), Literal(3)])", // c1
+                               "Clause([Literal(5), Literal(3), Literal(4)])", // c2
+                               "Clause([Literal(6), Literal(5), Literal(3)])", // c3
+                               );
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![2]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![2, 3, 1, 0]);
+        assert_eq!(&solver.watchers[lit(6)], &vec![3]);
+
+        assert_eq!(Some(2), solver.reason[var(5)]);
+
+        // Reduce DB
+        solver.reduce_db(); // if it doesn't panic with out of bounds, it means that reduce_db
+                            // appropriately replaced all references to c3 by 0
+
+        // Ensure state after DB reduction
+        let database = format!("[{}, {}]",
+        "Clause([Literal(5), Literal(3), Literal(4)])",  // originally c2 (lit shuffled because of UP)
+        "Clause([Literal(2), Literal(5), Literal(3)])"); // originally c1 (lit shuffled because of UP)
+        assert_eq!(database, format!("{:?}", solver.clauses));
+
+        assert_eq!(&solver.watchers[lit(1)], &vec![ ]);
+        assert_eq!(&solver.watchers[lit(2)], &vec![1]);
+        assert_eq!(&solver.watchers[lit(3)], &vec![0]);
+        assert_eq!(&solver.watchers[lit(4)], &vec![]);
+        assert_eq!(&solver.watchers[lit(5)], &vec![0, 1]);
+
+        assert_eq!(Some(0), solver.reason[var(5)]);
     }
 
     #[test]
