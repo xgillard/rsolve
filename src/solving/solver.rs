@@ -549,7 +549,8 @@ impl Solver {
                     CLAUSE_ELIDED => {/* Ignore */},
                     // will always happen
                     reason_id => {
-                        // Glucose-like database management
+                        // Glucose-like database management: dynamically improve the LBD
+                        // if we can show that it is improved.
                         let lbd = self.literal_block_distance(reason_id);
 
                         let ref mut cause = self.clauses[reason_id];
@@ -2117,6 +2118,105 @@ mod tests {
         solver.reduce_db();
         assert_eq!(3, solver.clauses.len());
     }
+
+    #[test]
+    fn reduce_db_must_maintain_a_coherent_clause_database() {
+        // The ids of the clauses 'replacing' the removed ones must be adapted
+        // TODO
+    }
+
+    #[test]
+    fn remove_clause_must_remove_the_clause_from_the_watched_lists(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_clause_must_erase_its_locking_reason_if_there_is_one(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_clause_must_redirect_the_watcher_of_the_last_clause(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_clause_must_redirect_the_reason_of_the_last_clause(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_clause_must_not_redirect_anything_when_the_last_clause_is_removed(){
+        // TODO
+    }
+
+    #[test]
+    fn propagate_removes_clauses_which_are_always_true() {
+        // TODO
+    }
+
+    #[test]
+    fn propagate_simplifies_clauses_with_failed_literals(){
+        // TODO
+    }
+
+    #[test]
+    fn reason_about_literal_being_forced_must_remove_clauses_which_are_always_true(){
+        // TODO what if it is locked ? Does it hurt ? to replace cause w/ elided ?
+    }
+
+    #[test]
+    fn reason_about_literal_being_forced_must_remove_failed_literals(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_no_new_WL_can_be_found(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_an_empty_clause_is_created(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_a_newly_created_unit_clause_is_conflicting(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_assign_literal_when_new_unit_clause_is_detected(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_effectively_remove_the_failed_literal(){
+        // TODO
+    }
+
+    #[test]
+    fn add_learned_clause_must_set_an_initial_lbd(){
+        // TODO
+    }
+
+    #[test]
+    fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__no_gap(){
+        // TODO all blocks are subsequent
+    }
+
+    #[test]
+    fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__with_gap(){
+        // TODO not all blocks are contiguous
+    }
+
+    #[test]
+    fn find_first_uip_must_dynamically_update_the_lbd_when_it_is_improved(){
+        // TODO
+    }
+
+    // TODO: tests for partial restarts (check that permutation reuse is implemented) !!
+
 
     fn get_last_constraint(solver : &Solver) -> ClauseId {
         solver.clauses.len() - 1

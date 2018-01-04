@@ -307,4 +307,32 @@ mod tests {
 
         assert_eq!("0", &clause.to_dimacs());
     }
+
+    #[test]
+    fn a_clause_can_be_dereferenced_as_an_immutable_vector_of_literals() {
+        let clause = Clause::new(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)], false);
+
+        assert_eq!(clause.literals, *clause);
+    }
+
+    #[test]
+    fn a_clause_can_be_dereferenced_as_a_mutable_vector_of_literals() {
+        let mut clause = Clause::new(vec![
+            Literal::from(1),
+            Literal::from(2),
+            Literal::from(4),
+            Literal::from(8)], false);
+
+        assert_eq!("Clause([Literal(1), Literal(2), Literal(4), Literal(8)])",
+                   &format!("{:?}", clause));
+
+        clause.swap(1, 2);
+
+        assert_eq!("Clause([Literal(1), Literal(4), Literal(2), Literal(8)])",
+                   &format!("{:?}", clause));
+    }
 }
