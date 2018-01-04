@@ -1,6 +1,8 @@
 extern crate fixedbitset;
 
 use std::usize;
+use std::cmp::min;
+use std::time::{SystemTime, Duration};
 
 use core::*;
 use collections::*;
@@ -14,6 +16,14 @@ const CLAUSE_ELIDED: ClauseId = usize::MAX;
 type Watcher  = ClauseId;
 type Conflict = ClauseId;
 type Reason   = ClauseId;
+
+/// Used during simplification only. This enum tells the outcome of removing a 'failed literal'
+/// from a given clause.
+enum LitRemovalOutcome {
+    LiteralRemoved, // we only removed a literal
+    ClauseRemoved,  // we removed the whole clause since it became unit
+    UnsatDetected,  // we detected that problem is now provably UNSAT
+}
 
 // -----------------------------------------------------------------------------------------------
 /// # Solver
@@ -88,7 +98,11 @@ pub struct Solver {
     /// The reason associated with each assignment
     reason       : VarIdxVec<Option<Reason>>,
     /// The flags used during conflict analysis. One set of flag is associated with each literal.
-    flags        : LitIdxVec<Flags>
+    flags        : LitIdxVec<Flags>,
+
+    // ~~~ # Simplification ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    simplification_timeout: Duration
+
 }
 
 impl Solver {
@@ -119,7 +133,9 @@ impl Solver {
             propagated   : 0,
 
             reason       : VarIdxVec::with_capacity(nb_vars),
-            flags        : LitIdxVec::with_capacity(nb_vars)
+            flags        : LitIdxVec::with_capacity(nb_vars),
+
+            simplification_timeout: Duration::from_millis(500)
         };
 
         // initialize vectors
@@ -229,7 +245,8 @@ impl Solver {
         let last = self.clauses.len() - 1;
 
         // Remove clause_id from the watchers lists
-        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+        let c_len= self.clauses[clause_id].len();
+        for i in 0..min(2, c_len) {
             let watched = self.clauses[clause_id][i];
 
             let nb_watchers = self.watchers[watched].len();
@@ -254,7 +271,8 @@ impl Solver {
 
         if last != clause_id {
             // Replace last by clause_id in the watchers lists
-            for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+            let c_len = self.clauses[last].len();
+            for i in 0..min(2, c_len) {
                 let watched = self.clauses[last][i];
 
                 let nb_watchers = self.watchers[watched].len();
@@ -299,6 +317,8 @@ impl Solver {
 	///
     pub fn solve(&mut self) -> bool {
         loop {
+            if self.nb_decisions == 0 { self.simplify(); }
+
             if self.is_unsat { return false; }
 
             match self.propagate() {
@@ -919,6 +939,132 @@ impl Solver {
             flags[lit].set(Flag::IsMarked);
             var_order.bump(lit.var() );
         }
+    }
+
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- REASONING ----------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
+    /// A very simple form of simplification:
+    /// - whenever a clause contains a literal which is forced, this clause is guaranteed to remain
+    ///   true forever. Hence it can be removed.
+    /// - whenever a clause contains the negation of a literal which is forced, that literal can be
+    ///   removed from the clause.
+    fn simplify(&mut self) {
+        let now = SystemTime::now();
+
+        let mut simplified = true;
+
+        while simplified {
+
+            match now.elapsed() {
+                Err(_) => {/* that's ok, I don't care */},
+                Ok (t) => {
+                    if t >= self.simplification_timeout {
+                        self.simplification_timeout += Duration::from_millis(500);
+                        return;
+                    }
+                }
+            }
+
+            simplified = false;
+
+            if self.is_unsat { return; } // there is no point !
+
+            let db_size = self.clauses.len();
+            for c_id in (0..db_size).rev() {
+                let c_len = self.clauses[c_id].len();
+                for i in (0..c_len).rev() {
+                    let lit = self.clauses[c_id][i];
+
+                    // If the clause is always true, it can be removed !
+                    if self.flags[lit].is_set(Flag::IsForced) {
+                        simplified = true;
+
+                        let lock = self.reason[self.clauses[c_id][0].var()];
+                        if lock.is_some() {
+                            self.reason[self.clauses[c_id][0].var()] = Some(CLAUSE_ELIDED);
+                        }
+
+                        self.remove_clause(c_id);
+                        break;
+                    }
+
+                    // If the clause contains a failed literal, remove it
+                    if self.flags[!lit].is_set(Flag::IsForced) {
+                        simplified = true;
+
+                        match self.remove_failed_lit_from_clause(lit, c_id) {
+                            LitRemovalOutcome::UnsatDetected => return,
+                            LitRemovalOutcome::ClauseRemoved => break,
+                            LitRemovalOutcome::LiteralRemoved => continue
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn remove_failed_lit_from_clause(&mut self, failed : Literal, clause_id: ClauseId) -> LitRemovalOutcome {
+        { // A. Effectively remove the failed literal from the clause
+            let ref mut clause = self.clauses[clause_id];
+            let c_len = clause.len();
+
+            // First, we make sure that the failed lit is not watched
+            if c_len > 1 {
+                let watched: Vec<Literal> = clause.iter()
+                    .take(2)
+                    .map(|l| *l)
+                    .collect();
+                for wl in watched {
+                    if wl == failed {
+                        match clause.find_new_literal(failed, &self.valuation) {
+                            Err(l) if l == failed => {
+                                self.is_unsat = true;
+                                return LitRemovalOutcome::UnsatDetected;
+                            },
+                            _ => {},
+                        }
+                    }
+                }
+            }
+
+            // In case no new wl found but one of the wl is not falsified (ie clause becomes unit)
+            // make sure to remove `clause_id` from the watch list of the failed lit.
+            for i in 0..self.watchers[failed].len() {
+                if self.watchers[failed][i] == clause_id {
+                    self.watchers[failed].swap_remove(i);
+                    break;
+                }
+            }
+
+            // then we shrink the clause
+            for j in (0..c_len).rev() {
+                if clause[j] == failed {
+                    clause.swap_remove(j);
+                    break;
+                }
+            }
+        }
+
+        { // B. Perform additional checks on the modified clause
+            // check whether the clause has become unit
+            let c_len = self.clauses[clause_id].len();
+            if c_len == 1 {
+                let assertion = self.clauses[clause_id][0];
+                self.is_unsat |= self.assign(assertion, Some(CLAUSE_ELIDED)).is_err();
+                self.remove_clause(clause_id);
+
+                return LitRemovalOutcome::ClauseRemoved;
+            }
+            // check whether shrinking the clause made the problem unsat
+            if c_len == 0 {
+                self.is_unsat = true;
+                return LitRemovalOutcome::UnsatDetected;
+            }
+        }
+
+        return LitRemovalOutcome::LiteralRemoved;
     }
 
 }
@@ -2301,7 +2447,6 @@ mod tests {
     #[test]
     fn add_learned_clause_must_set_an_initial_lbd(){
         let mut solver = Solver::new(6);
-
         solver.level[var(1)] = 4;
         solver.level[var(3)] = 5;
         solver.level[var(5)] = 5;
@@ -2344,6 +2489,7 @@ mod tests {
         assert_eq!(3, solver.literal_block_distance(0));
     }
 
+    #[allow(non_snake_case)]
     #[test]
     fn test_level_starts_at_one_for_decisions() {
         /*-
@@ -2383,6 +2529,7 @@ mod tests {
         assert_eq!(3, solver.level[var(6)]);
     }
 
+    #[allow(non_snake_case)]
     #[test]
     fn test_level_is_zero_for_forced_literals() {
         let mut solver = Solver::new(7);
@@ -2450,6 +2597,74 @@ mod tests {
         solver.assign(lit(-4), Some(1));
         assert_eq!(2, solver.clauses[1].get_lbd());
     }
+    /*
+        #[test]
+        fn propagate_removes_clauses_which_are_always_true() {
+            let mut solver = Solver::new(6);
+            solver.add_problem_clause(&mut vec![1, 3, 5]); // c0
+            solver.add_problem_clause(&mut vec![2, 3, 5]); // c1
+            solver.add_problem_clause(&mut vec![4, 3, 5]); // c2
+            solver.add_problem_clause(&mut vec![6, 3, 5]); // c3
+            solver.add_problem_clause(&mut vec![6]);
+
+            assert!(solver.flags[lit(6)].is_set(Flag::IsForced));
+
+
+            let database = format!("[{}, {}, {}, {}]",
+                                   "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                                   "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                                   "Clause([Literal(3), Literal(4), Literal(5)])", // c2 (pb clause sorts lits)
+                                   "Clause([Literal(3), Literal(5), Literal(6)])", // c3 (idem)
+            );
+            assert_eq!(database, format!("{:?}", solver.clauses));
+
+            solver.propagate();
+
+            let database = format!("[{}, {}, {}]",
+                                   "Clause([Literal(1), Literal(3), Literal(5)])", // c0
+                                   "Clause([Literal(2), Literal(3), Literal(5)])", // c1
+                                   "Clause([Literal(3), Literal(4), Literal(5)])", // c2
+            );
+            assert_eq!(database, format!("{:?}", solver.clauses));
+
+        }
+    */
+
+    #[test]
+    fn reason_about_literal_being_forced_must_remove_clauses_which_are_always_true(){
+        // TODO what if it is locked ? Does it hurt ? to replace cause w/ elided ?
+    }
+
+    #[test]
+    fn reason_about_literal_being_forced_must_remove_failed_literals(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_no_new_wl_can_be_found(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_an_empty_clause_is_created(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_detect_unsatisfiability_when_a_newly_created_unit_clause_is_conflicting(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_assign_literal_when_new_unit_clause_is_detected(){
+        // TODO
+    }
+
+    #[test]
+    fn remove_failed_literal_must_effectively_remove_the_failed_literal(){
+        // TODO
+    }
+
 
     // TODO: tests for partial restarts (check that permutation reuse is implemented) !!
 
