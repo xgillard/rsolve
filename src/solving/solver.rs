@@ -101,8 +101,8 @@ pub struct Solver {
     flags        : LitIdxVec<Flags>,
 
     // ~~~ # Simplification ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    simplification_timeout: Duration
-
+    simplification_timeout: Duration,
+    occurence_count: LitIdxVec<usize>
 }
 
 impl Solver {
@@ -135,7 +135,8 @@ impl Solver {
             reason       : VarIdxVec::with_capacity(nb_vars),
             flags        : LitIdxVec::with_capacity(nb_vars),
 
-            simplification_timeout: Duration::from_millis(500)
+            simplification_timeout: Duration::from_secs(1),
+            occurence_count: LitIdxVec::with_capacity(nb_vars)
         };
 
         // initialize vectors
@@ -143,6 +144,8 @@ impl Solver {
             solver.watchers.push_values(vec![], vec![]);
             solver.flags   .push_values(Flags::new(), Flags::new());
             solver.reason  .push(None);
+
+            solver.occurence_count.push_values(0, 0);
         }
 
         return solver;
@@ -172,6 +175,11 @@ impl Solver {
         if clause.len() == 0 {
             self.is_unsat = true;
             return Err(());
+        }
+
+        // count occurences
+        for lit in clause.iter() {
+            self.occurence_count[*lit] += 1;
         }
 
         // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
@@ -240,6 +248,13 @@ impl Solver {
         // Print the clause to produce the UNSAT certificate if it was required.
         if self.drat {
             println!("d {}", self.clauses[clause_id].to_dimacs());
+        }
+
+        // count occurences
+        if self.clauses[clause_id].len() > 1 {
+            for lit in self.clauses[clause_id].iter() {
+                self.occurence_count[*lit] -= 1;
+            }
         }
 
         let last = self.clauses.len() - 1;
@@ -956,26 +971,27 @@ impl Solver {
         let mut simplified = true;
 
         while simplified {
-
-            match now.elapsed() {
-                Err(_) => {/* that's ok, I don't care */},
-                Ok (t) => {
-                    if t >= self.simplification_timeout {
-                        self.simplification_timeout += Duration::from_millis(500);
-                        return;
-                    }
-                }
-            }
-
             simplified = false;
 
             if self.is_unsat { return; } // there is no point !
 
             let db_size = self.clauses.len();
             for c_id in (0..db_size).rev() {
+
+                if self.has_timed_out(&now) { return; }
+
                 let c_len = self.clauses[c_id].len();
                 for i in (0..c_len).rev() {
                     let lit = self.clauses[c_id][i];
+
+                    // Pure literal
+                    if self.occurence_count[!lit] == 0 {
+                        simplified = true;
+
+                        self.is_unsat |= self.assign(lit, Some(CLAUSE_ELIDED)).is_err();
+                        self.remove_clause(c_id);
+                        break;
+                    }
 
                     // If the clause is always true, it can be removed !
                     if self.flags[lit].is_set(Flag::IsForced) {
@@ -1005,7 +1021,21 @@ impl Solver {
         }
     }
 
+    fn has_timed_out(&mut self, start: &SystemTime) -> bool {
+        match start.elapsed() {
+            Ok (t) if t >= self.simplification_timeout => {
+                self.simplification_timeout += Duration::from_millis(500);
+                return true;
+            },
+            _ => {
+                return false;
+            }
+        }
+    }
+
     fn remove_failed_lit_from_clause(&mut self, failed : Literal, clause_id: ClauseId) -> LitRemovalOutcome {
+        self.occurence_count[failed] -= 1;
+
         { // A. Effectively remove the failed literal from the clause
             let ref mut clause = self.clauses[clause_id];
             let c_len = clause.len();
