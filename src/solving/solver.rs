@@ -108,7 +108,7 @@ impl Solver {
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
             max_learned  : 1000,
-            restart_strat: LubyRestartStrategy::new(100),
+            restart_strat: LubyRestartStrategy::new(1),
             decisions    : vec![],
             decisions_pos: vec![],
             level        : VarIdxVec::from(vec![0; nb_vars]),
