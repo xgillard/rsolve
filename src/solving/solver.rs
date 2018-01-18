@@ -138,12 +138,9 @@ impl Solver {
 
     /// This is where we do the bulk of the work to add a clause to a clause database.
     ///
-    /// # Note
-    /// It was implemented as a macro in order to define this behavior only once and avoid repeating it.
-    /// Nevertheless, this macro is not meant to be accessible from the outside world and you should
-    /// refrain from using it. The only place where it is really legitimate to call this macro is from
-    /// within `add_problem_clause` and `add_learned_clause`. The latter two are the ones you should
-    /// really be using instead of the macro.
+    /// # Return Value
+    /// This function returns a result (Ok, Err) with the id of the clause that has been added. It
+    /// returns Err when adding the clause makes the whole problem UNSAT.
     fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
         // Print the clause to produce the UNSAT certificate if it was required.
         if self.drat {
@@ -177,6 +174,17 @@ impl Solver {
         return Ok(c_id);
     }
 
+    /// This function adds a problem clause to the database.
+    ///
+    /// # Note
+    /// The heavy lifting is done by `add_clause` but before proceeding to the actual addition,
+    /// we make sure that we dont 'pollute' our clause database with clauses that are useless.
+    /// In particular, we make sure to remove tautological clauses (either contains both polarities
+    /// for a given variable or contains a literal which is already marked implied).
+    ///
+    /// # Return Value
+    /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
+    /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
     // TODO: rename post constraint ?
     pub fn add_problem_clause(&mut self, c : &mut Vec<iint>) -> Result<ClauseId, ()> {
         // don't add the clause if it is a tautology
@@ -204,6 +212,16 @@ impl Solver {
         return self.add_clause(Clause::new(literals, false) );
     }
 
+    /// This function adds a learned clause to the database.
+    ///
+    /// In this case, we dont waste time checking for tautologies (both polarities) since the
+    /// conflict resolution algorithm prevents the occurence of such clauses.
+    ///
+    /// # Note
+    /// It could still be beneficial to avoid adding learned clauses that are forcibly satisfied.
+    /// However, as tempting as it is, I have refrained from doing this since it impacts conflict
+    /// resolution (the conflict resolution strategy asserts the first literal of the learned clause
+    /// and assumes that clause is added to the database).
     fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()> {
         let result = self.add_clause(Clause::new(c, true) );
 
@@ -220,6 +238,15 @@ impl Solver {
         return result;
     }
 
+    /// Removes a clause from the database.
+    ///
+    /// In order to keep a consistent state while removing a clause from the database, we must
+    /// ensure that :
+    /// - the clause identifier is removed from the all watchers list.
+    /// - no reason depends on the removed clause
+    /// - all references (watchers, reason) to the the clause that "recycles" the removed clause' id
+    ///   are renumbered appropriately. (Note: an identifier might not be recycled if the removed
+    ///   clause was the last one in database).
     fn remove_clause(&mut self, clause_id: ClauseId) {
         // Print the clause to produce the UNSAT certificate if it was required.
         if self.drat {
