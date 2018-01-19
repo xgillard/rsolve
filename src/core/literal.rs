@@ -48,6 +48,15 @@ impl Literal {
     #[inline]
     /// Returns the numeric identifier of the literal
     pub fn to_isize(self) -> isize { self.0 as isize }
+
+    #[inline]
+    /// Returns a hash code on 64 bits for the given literal.
+    ///
+    /// # Note
+    /// I explicitly chose not to use and implement `std::hash::Hash` because my aim is to fully
+    /// control the way hashes are computed for clauses. Therefore, I want to be able to easily
+    /// derive a number for the literal
+    pub fn hash_code(self)-> u64 { 2_u64.pow(self.0 as u32 % 64) }
 }
 
 /// Because literals have an identity (besides their memory location), the Literal type implements
@@ -185,5 +194,21 @@ mod tests {
 
         assert_ne!(a, Literal::from(32));
         assert_ne!(a, Literal::from(-32));
+    }
+
+    #[test]
+    fn equal_literals_should_have_the_same_hash() {
+        let a = Literal::from(42);
+        let b = Literal::from(42);
+
+        assert_eq!(a.hash_code(), b.hash_code())
+    }
+
+    #[test]
+    fn different_literals_should_try_not_to_have_the_same_hash() {
+        let a = Literal::from( 42);
+        let b = Literal::from(-42);
+
+        assert_ne!(a.hash_code(), b.hash_code())
     }
 }

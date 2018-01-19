@@ -47,7 +47,11 @@ pub struct Clause {
     /// is to say, it tells whether or not the LBD of this clause has been improved since the last
     /// round of database reduction. This indication is helpful in the sense that it helps protecting
     /// against deletion the clauses that have recently been of interest.
-    lbd_recently_updated: bool
+    lbd_recently_updated: bool,
+    /// This number is a hash (aka _signature_ ) of the clause. It is useful to implement a fast
+    /// check to test equality between two clauses. Computing this hash should not require sorting
+    /// the clause.
+    pub hash: u64
 }
 
 impl Clause {
@@ -57,10 +61,13 @@ impl Clause {
             literals: terms,
             is_learned,
             lbd : u32::max_value(),
-            lbd_recently_updated: false
+            lbd_recently_updated: false,
+            hash: 0
         };
 
         clause.literals.shrink_to_fit();
+        clause.rehash();
+
         return clause;
     }
 
@@ -115,6 +122,42 @@ impl Clause {
     }
     pub fn set_lbd_recently_updated(&mut self, updated: bool) {
         self.lbd_recently_updated = updated;
+    }
+
+    /// This function recomputes the hash of the function and returns it. It *must* be called
+    /// whenever a literal is added (unlikely) or removed (very likely) from a clause.
+    pub fn rehash(&mut self) {
+        self.hash = 0;
+        for l in self.literals.iter() { self.hash |= l.hash_code(); }
+    }
+
+    /// This function tells whether or not `self` subsumes `other`.
+    /// That is to say, this function returns true iff self is a subset of other.
+    pub fn subsumes(&self, other: &Clause) -> bool {
+        if self.len() > other.len() {
+            return false;
+        }
+        if (self.hash & other.hash) != self.hash {
+            return false;
+        }
+
+        let mut sv = self.literals.clone();
+        let mut ov = other.literals.clone();
+        sv.sort_unstable_by_key(|x| x.to_isize());
+        ov.sort_unstable_by_key(|x| x.to_isize());
+
+        let mut i = 0;
+        let mut j = 0;
+
+        while i < sv.len() && j < ov.len() {
+            if sv[i] == ov[j] {
+                i += 1;
+            }
+            j += 1;
+        }
+
+        // when the last item of sv was found in ov, i has been incremented !
+        return i == sv.len();
     }
 
     /// Returns a DIMACS string representation of this clause
@@ -342,5 +385,129 @@ mod tests {
 
         assert_eq!("Clause([Literal(1), Literal(4), Literal(2), Literal(8)])",
                    &format!("{:?}", clause));
+    }
+
+    #[test]
+    fn equal_clauses_should_have_the_same_hash() {
+        let c1 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let c2 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+
+        assert_eq!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn equal_clauses_should_have_the_same_hash_even_if_they_are_shuffled() {
+        let c1 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let c2 = Clause::new(vec![lit(3), lit(1), lit(2)], true);
+
+        assert_eq!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn equal_clauses_should_have_the_same_hash_even_if_there_are_duplicate_literals() {
+        let c1 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let c2 = Clause::new(vec![lit(3), lit(1), lit(2), lit(3)], true);
+
+        assert_eq!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn different_clauses_should_try_not_to_have_the_same_hash() {
+        let c1 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let c2 = Clause::new(vec![lit(1), lit(-2), lit(3)], true);
+
+        assert_ne!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn subsuming_clauses_should_not_to_have_the_same_hash() {
+        let subsumed = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let subsuming = Clause::new(vec![lit(1), lit(3)], true);
+
+        assert_ne!(subsumed.hash, subsuming.hash)
+    }
+
+    #[test]
+    fn hash_can_help_detecting_subsumption() {
+        let subsumed = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let subsuming = Clause::new(vec![lit(1), lit(3)], true);
+
+        assert_eq!( (subsumed.hash & subsuming.hash), subsuming.hash);
+        assert_ne!( (subsumed.hash & subsuming.hash), subsumed.hash );
+    }
+
+    #[test]
+    fn rehash_should_be_idempotent_on_an_untouched_clause() { // its only a waste of time !
+        let mut c1 = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let c2 = Clause::new(vec![lit(3), lit(1), lit(2)], true);
+
+        assert_eq!(c1.hash, c2.hash);
+        c1.rehash();
+        assert_eq!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn rehash_should_fix_the_hash_of_a_modified_clause() { // its only a waste of time !
+        let mut c1 = Clause::new(vec![lit(1), lit(2), lit(3), lit(4)], true);
+        let c2 = Clause::new(vec![lit(3), lit(1), lit(2)], true);
+
+        assert_ne!(c1.hash, c2.hash);
+        c1.swap_remove(3); // remove lit(4) but it does not automagically change the hash
+        assert_ne!(c1.hash, c2.hash);
+        c1.rehash(); // fix it !
+        assert_eq!(c1.hash, c2.hash)
+    }
+
+    #[test]
+    fn subsumes_must_be_false_when_self_is_longer_than_other() {
+        let a = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(2)], true);
+
+        assert!( !a.subsumes(&b) )
+    }
+    #[test]
+    fn subsumes_must_be_false_when_the_hashes_do_not_agree() {
+        let a = Clause::new(vec![lit(1),lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(2)], true);
+
+        assert!( !a.subsumes(&b) )
+    }
+    #[test]
+    fn subsumes_must_be_false_when_there_is_a_collision_but_no_match(){
+        let mut a = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(2)], true);
+
+        a.hash = b.hash; // simulate a collision
+
+        assert!( !a.subsumes(&b) )
+    }
+    #[test]
+    fn subsumes_must_be_true_when_clauses_match(){
+        let a = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+
+        assert!( a.subsumes(&b) )
+    }
+    #[test]
+    fn subsumes_must_be_true_when_self_is_a_propser_subset_of_other(){
+        let a = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(2)], true);
+
+        assert!( b.subsumes(&a) )
+    }
+
+    #[test]
+    fn can_strengthen() {
+        // can be strenghtened and the resolvent would be [1, 3]
+        let a = Clause::new(vec![lit(1), lit( 2), lit(3)], true);
+        let b = Clause::new(vec![lit(1), lit(-2)], true);
+
+        let mut can_do = false;
+        for l in a.literals.iter() {
+            can_do |= b.hash & ( a.hash | (!*l).hash_code() ) == b.hash;
+        }
+
+        // b can strengthen a
+        assert!(can_do);
     }
 }
