@@ -108,7 +108,7 @@ impl Solver {
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
             max_learned  : 1000,
-            restart_strat: LubyRestartStrategy::new(1),
+            restart_strat: LubyRestartStrategy::new(100),
             decisions    : vec![],
             decisions_pos: vec![],
             level        : VarIdxVec::from(vec![0; nb_vars]),
@@ -815,6 +815,13 @@ impl Solver {
     /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
     /// * Between Restarts and Backjumps (Ramos, Van Der Tak, Heule -- 2011)
     fn restart(&mut self) {
+        let pos = self.forced;
+        self.rollback(pos);
+        self.restart_strat.set_next_limit();
+        self.nb_restarts += 1;
+        self.nb_conflicts_since_restart = 0;
+
+        /*
         match self.find_partial_restart_pos() {
             None => return,
             Some(position) => {
@@ -825,6 +832,7 @@ impl Solver {
                 self.nb_conflicts_since_restart = 0;
             }
         }
+        */
     }
 
     /// Finds the position as of which the trail will not be reused when using the partial restart
