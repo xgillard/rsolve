@@ -45,12 +45,17 @@ impl VariableOrdering {
         // fill padding with a non-existing variable
         ret.heap.push(Variable::from(capa+1));
 
-        // initialize the heap with true values !
+        // initialize the heap with actual values !
         for i in 1..(capa+1) {
             ret.heap.push(Variable::from(i));
             ret.position.push(i);
             ret.score.push(1.0);
         }
+
+        // reclaim wastefully overallocated memory
+        ret.heap    .shrink_to_fit();
+        ret.position.shrink_to_fit();
+        ret.score   .shrink_to_fit();
 
         return ret;
     }

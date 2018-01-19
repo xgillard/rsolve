@@ -53,7 +53,15 @@ pub struct Clause {
 impl Clause {
     /// Creates a new clause from its terms
     pub fn new(terms: Vec<Literal>, is_learned: bool) -> Clause {
-        Clause{ literals: terms, is_learned, lbd : u32::max_value(), lbd_recently_updated: false }
+        let mut clause = Clause{
+            literals: terms,
+            is_learned,
+            lbd : u32::max_value(),
+            lbd_recently_updated: false
+        };
+
+        clause.literals.shrink_to_fit();
+        return clause;
     }
 
     /// Tries to find a new literal that can be watched by the given clause.

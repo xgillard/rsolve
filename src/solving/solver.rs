@@ -49,7 +49,7 @@ pub struct Solver {
     /// the solver as it will always answer the same result.
     is_unsat     : bool,
 
-    // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The variable ordering heuristic (derivative of vsids)
     var_order    : VariableOrdering,
     /// The partial valuation remembering the last phase of each variable
@@ -128,6 +128,11 @@ impl Solver {
             solver.flags   .push_values(Flags::new(), Flags::new());
             solver.reason  .push(None);
         }
+
+        // reclaim wastefully overallocated memory
+        solver.watchers.shrink_to_fit();
+        solver.flags   .shrink_to_fit();
+        solver.reason  .shrink_to_fit();
 
         return solver;
     }

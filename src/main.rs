@@ -18,7 +18,6 @@ use flate2::bufread::GzDecoder;
 use std::time::*;
 
 // TODO: Test - Solver.rs -> partial restarts
-// TODO: Test - Solver.rs -> LBD
 // TODO: Test - dimacs.rs -> *
 // TODO: Dev  - LRB
 // TODO: Dev  - LCM

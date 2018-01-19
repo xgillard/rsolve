@@ -17,6 +17,9 @@ impl Valuation {
         for _ in 0..nb_vars {
             valuation.0.push(Bool::Undef );
         }
+
+        // reclaim wastefully overallocated memory
+        valuation.0.shrink_to_fit();
         return valuation;
     }
 
