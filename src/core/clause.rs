@@ -160,6 +160,72 @@ impl Clause {
         return i == sv.len();
     }
 
+    /// This function tries to strengthen `other` using `self`.
+    /// That is to say, it tries to remove one literal from other (strengthen is by self-subsuming
+    /// resolution) and in case of success, it returns the literal that was removed from other.
+    ///
+    /// # Return Value
+    /// When `other` could be strengthened using self, this function returns Some((l,w)) where `l`
+    /// stands for the literal that has been removed and `w` is a boolean indicating whether or not
+    /// `w` was watched.
+    ///
+    /// In all other cases where no self subsuming resolution could be carried out, this function
+    /// has no effect and returns None.
+    ///
+    /// # Caveats
+    /// When other can be strenghtened, it is modified *in place* (the hash is recomputed here) this
+    /// means that it is *the caller's responsibility to find a new literal to watch* if that is
+    /// applicable. Just as much as it is his responsibility to remove self from the clause database
+    pub fn try_strengthen(&self, other: &mut Clause) -> Option<(Literal, bool)> {
+        if self.len() > other.len() { return None; }
+
+        for i in 0..other.literals.len() {
+            let l = other[i];
+
+            // if the hash of other matches this one when we flip `l`
+            if self.hash & ( other.hash | !l.hash_code() ) == self.hash {
+
+                // make sure that we did not detect a collision
+                let mut remove = None;
+                for a in 0..self.literals.len() {
+                    let x = self[a];
+                    let mut found = false;
+                    for b in 0..other.literals.len() {
+                        let y = other[b];
+                        if x ==  y {
+                            found = true;
+                            break;
+                        }
+
+                        if x == !y {
+                            // short circuit: leave if we find more than one var with opposite
+                            // polarities in the two clauses
+                            if remove.is_none() { remove = Some( (y, b) ); } else { return None; }
+                            found = true;
+                            break
+                        }
+                    }
+
+                    // We've analyzed it in depth, it was a collision. Quit.
+                    if !found { return None; }
+                }
+
+                if let Some((x, pos)) = remove {
+                    // It was no collision, reduce it.
+                    other.swap_remove(pos);
+                    other.rehash();
+                    return Some((x, pos <= 1))
+                } else {
+                    // Yet an other case of collision
+                    return None;
+                }
+            }
+        }
+
+        // We flipped all literals and none has ever given us a match.
+        return None;
+    }
+
     /// Returns a DIMACS string representation of this clause
     pub fn to_dimacs(&self) -> String {
         let mut out = String::new();
@@ -494,6 +560,58 @@ mod tests {
         let b = Clause::new(vec![lit(1), lit(2)], true);
 
         assert!( b.subsumes(&a) )
+    }
+
+    #[test]
+    fn try_strengthen_should_strengthen_the_clause_and_return_the_removed_lit() {
+        let a = Clause::new(vec![lit(1), lit(5), lit(-2)], true);
+        let mut b = Clause::new(vec![lit(1), lit(5), lit(2), lit(3)], true);
+
+        assert_eq!(Some((lit(2), false)), a.try_strengthen(&mut b));
+    }
+
+    #[test]
+    fn try_strengthen_should_keep_the_hashes_consistent() {
+        let a = Clause::new(vec![lit(1), lit(5), lit(-2)], true);
+        let mut b = Clause::new(vec![lit(1), lit(5), lit(2), lit(3)], true);
+        let c = Clause::new(vec![lit(1), lit(5), lit(3)], true);
+
+        assert_ne!(b.hash, c.hash);
+        a.try_strengthen(&mut b);
+        assert_eq!(b.hash, c.hash);
+        assert_eq!(format!("{:?}", b), format!("{:?}", c))
+    }
+
+    #[test]
+    fn try_strengthen_should_tell_if_the_removed_literal_was_watched() {
+        let a = Clause::new(vec![lit(1), lit(-2)], true);
+        let mut b = Clause::new(vec![lit(1), lit(2), lit(3)], true);
+
+        assert_eq!(Some((lit(2), true)), a.try_strengthen(&mut b));
+    }
+
+    #[test]
+    fn try_strengthen_should_return_none_when_there_is_more_than_one_disagreement() {
+        let a = Clause::new(vec![lit(1), lit(-2), lit(5)], true);
+        let mut b = Clause::new(vec![lit(1), lit(2), lit(-5), lit(3)], true);
+
+        assert_eq!(None, a.try_strengthen(&mut b));
+    }
+
+    #[test]
+    fn try_strengthen_should_return_none_when_self_is_longer_than_other() {
+        let a = Clause::new(vec![lit(1), lit(-2), lit(5)], true);
+        let mut b = Clause::new(vec![lit(1), lit(2) ], true);
+
+        assert_eq!(None, a.try_strengthen(&mut b));
+    }
+
+    #[test]
+    fn try_strengthen_should_return_none_when_self_is_not_an_almost_subset_of_other() {
+        let a = Clause::new(vec![lit(1), lit(-2), lit(5)], true);
+        let mut b = Clause::new(vec![lit(6), lit(7) ], true);
+
+        assert_eq!(None, a.try_strengthen(&mut b));
     }
 
     #[test]
