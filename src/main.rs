@@ -26,6 +26,9 @@ use std::time::*;
 // TODO: Dev  - variable-elimination
 // TODO: Dev  - unhiding
 // TODO: Ref. - Add getters for public fields of the solver
+// TODO: Ref. - Use traits to encapsulate the various aspects of the solver
+// TODO: Ref. - Retrieve the partial restart implemented which is last found in commit
+//              ccf74064f653ad665165926db2d7665469e90dfc and offer it as a trait implementation.
 
 /// This simple structure encapsulates the options and arguments that are passed to the solver using
 /// the command line interface (cli).
