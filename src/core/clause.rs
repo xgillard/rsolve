@@ -51,7 +51,7 @@ pub struct Clause {
     /// This number is a hash (aka _signature_ ) of the clause. It is useful to implement a fast
     /// check to test equality between two clauses. Computing this hash should not require sorting
     /// the clause.
-    pub hash: u64
+    hash: u64
 }
 
 impl Clause {
