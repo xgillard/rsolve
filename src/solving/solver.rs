@@ -1,6 +1,7 @@
 extern crate fixedbitset;
 
 use std::usize;
+use std::cmp::min;
 
 use core::*;
 use collections::*;
@@ -88,7 +89,26 @@ pub struct Solver {
     /// The reason associated with each assignment
     reason       : VarIdxVec<Option<Reason>>,
     /// The flags used during conflict analysis. One set of flag is associated with each literal.
-    flags        : LitIdxVec<Flags>
+    flags        : LitIdxVec<Flags<LitFlag>>,
+
+    // ~~~ # Simplification / Preprocessing ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    /// The queue of clauses id denoting all the clauses that have either been *added* or
+    /// *strengthened* (actually, boils down to the same when you think of it) since the last round
+    /// of simplification.
+    ///
+    /// # Note
+    /// This queue *does not* contain an id for the unit clauses. Just like in Minisat, unit clauses
+    /// are implicitly represented. Concretely, all unit clauses are represented by literals on the
+    /// trail that have their Forced flag on.
+    ///
+    /// # References
+    /// From a more theoretic point of view, this vector is meant to represent the `Added` and
+    /// `Strengthened` sets which are used in [Eeen05].
+    ///
+    /// [Eeen05] Effective Preprocessing in SAT through Variable and Clause Elimination.
+    ///          Niklas Een, Armin Biere. In International conference on theory and applications of
+    ///          satisfiability testing (pp. 61-75). Springer, Berlin, Heidelberg.
+    simplifiers : FixedBitSet
 }
 
 impl Solver {
@@ -119,7 +139,9 @@ impl Solver {
             propagated   : 0,
 
             reason       : VarIdxVec::with_capacity(nb_vars),
-            flags        : LitIdxVec::with_capacity(nb_vars)
+            flags        : LitIdxVec::with_capacity(nb_vars),
+
+            simplifiers  : FixedBitSet::with_capacity(1_000_000) // it can grow but let us be liberal
         };
 
         // initialize vectors
@@ -166,6 +188,12 @@ impl Solver {
             return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
         }
 
+        // if we grow over the size of the `simplifier` bitset, let us resize it
+        if c_id >= self.simplifiers.len() {
+            self.simplifiers.grow( 2 * c_id );
+        }
+        self.simplifiers.insert(c_id);
+
         // -- Activate the clause --
         // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
         // at least two literals
@@ -204,12 +232,12 @@ impl Solver {
 
         let literals: Vec<Literal> = c.iter()
                                      .map(|l|Literal::from(*l))
-                                     .filter(|l| !self.flags[!*l].is_set(Flag::IsForced))
+                                     .filter(|l| !self.flags[!*l].is_set(LitFlag::IsForced))
                                      .collect();
 
         // don't add the clause if it's guaranteed to be satisfied
         for l in literals.iter() {
-            if self.flags[*l].is_set(Flag::IsForced) {
+            if self.flags[*l].is_set(LitFlag::IsForced) {
                 return Ok(CLAUSE_ELIDED);
             }
         }
@@ -243,6 +271,31 @@ impl Solver {
         return result;
     }
 
+    /// Proceed to the deletion of a set of clauses in the database.
+    /// All the clauses identified by an id in the remove_agenda will be removed.
+    fn remove_all(&mut self, remove_agenda: &mut Vec<ClauseId>) {
+        // Actually proceed to the clause deletion
+        let nb_delete = remove_agenda.len();
+        for i in 0..nb_delete {
+            let id = remove_agenda[i];
+
+            assert!(self.clauses.len() >= 1, format!("empty but remove {:?} [{}] = {} ", remove_agenda, i, id));
+            let last = self.clauses.len() - 1;
+
+            self.remove_clause(id);
+
+            // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
+            // the in the agenda (to avoid panicking on out of bounds index)
+            if id != last {
+                for j in i+1..nb_delete {
+                    if remove_agenda[j] == last {
+                        remove_agenda[j] = id;
+                    }
+                }
+            }
+        }
+    }
+
     /// Removes a clause from the database.
     ///
     /// In order to keep a consistent state while removing a clause from the database, we must
@@ -261,7 +314,7 @@ impl Solver {
         let last = self.clauses.len() - 1;
 
         // Remove clause_id from the watchers lists
-        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+        for i in 0..min(2, self.clauses[clause_id].len()) {
             let watched = self.clauses[clause_id][i];
 
             let nb_watchers = self.watchers[watched].len();
@@ -286,7 +339,7 @@ impl Solver {
 
         if last != clause_id {
             // Replace last by clause_id in the watchers lists
-            for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+            for i in 0..min(2, self.clauses[last].len()) {
                 let watched = self.clauses[last][i];
 
                 let nb_watchers = self.watchers[watched].len();
@@ -315,6 +368,11 @@ impl Solver {
             self.nb_learned -= 1;
         }
 
+        // .. the simplifiers
+        let simp_contains_last = self.simplifiers.contains(last);
+        self.simplifiers.set( clause_id, simp_contains_last);
+        self.simplifiers.set(last, false);
+
         self.clauses.swap_remove(clause_id);
     }
 
@@ -330,6 +388,8 @@ impl Solver {
 	/// false if there exists no such assignment.
 	///
     pub fn solve(&mut self) -> bool {
+        self.simplify();
+
         loop {
             if self.is_unsat { return false; }
 
@@ -415,7 +475,7 @@ impl Solver {
 
                 // if the solver is at root level, then assignment must follow from the problem
                 if self.nb_decisions == 0 {
-                    self.flags[lit].set(Flag::IsForced);
+                    self.flags[lit].set(LitFlag::IsForced);
                     self.forced += 1;
                 }
 
@@ -540,9 +600,9 @@ impl Solver {
         for cusor in (self.forced..uip+1).rev() {
             let lit = self.prop_queue[cusor];
 
-            if self.flags[lit].is_set(Flag::IsMarked) && !self.is_implied(lit) {
+            if self.flags[lit].is_set(LitFlag::IsMarked) && !self.is_implied(lit) {
                 learned.push(lit);
-                self.flags[lit].set(Flag::IsInConflictClause);
+                self.flags[lit].set(LitFlag::IsInConflictClause);
             }
         }
 
@@ -581,7 +641,7 @@ impl Solver {
             let lit = self.prop_queue[cursor];
 
             // if a literal is not marked, we don't need to care about it
-            if !self.flags[lit].is_set(Flag::IsMarked) { continue }
+            if !self.flags[lit].is_set(LitFlag::IsMarked) { continue }
 
             // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
             // decision literal because, if it were, the is_uip() would have been true.
@@ -618,14 +678,14 @@ impl Solver {
             return true;
         }
 
-        if !self.flags[literal].is_set(Flag::IsMarked) {
+        if !self.flags[literal].is_set(LitFlag::IsMarked) {
             return false;
         }
 
         for iter in (self.forced..position).rev() {
             let iter_literal= self.prop_queue[iter];
 
-            if self.flags[iter_literal].is_set(Flag::IsMarked) {
+            if self.flags[iter_literal].is_set(LitFlag::IsMarked) {
                 return false;
             }
             if self.is_decision(iter_literal) {
@@ -651,8 +711,8 @@ impl Solver {
     fn is_implied(&mut self, lit: Literal) -> bool {
         // If it's already been analyzed, reuse that info
         let flags_lit = self.flags[lit];
-        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
-            return flags_lit.is_set(Flag::IsImplied);
+        if flags_lit.one_of(LitFlag::IsImplied, LitFlag::IsNotImplied) {
+            return flags_lit.is_set(LitFlag::IsImplied);
         }
 
         match &self.reason[lit.var()] {
@@ -666,12 +726,12 @@ impl Solver {
                     let c_len = self.clauses[reason_id].len();
                     for i in 1..c_len {
                         let l = self.clauses[reason_id][i];
-                        if !self.flags[l].is_set(Flag::IsMarked) && !self.is_implied(l) {
-                            self.flags[lit].set(Flag::IsNotImplied);
+                        if !self.flags[l].is_set(LitFlag::IsMarked) && !self.is_implied(l) {
+                            self.flags[lit].set(LitFlag::IsNotImplied);
                             return false;
                         }
                     }
-                    self.flags[lit].set(Flag::IsImplied);
+                    self.flags[lit].set(LitFlag::IsImplied);
                     return true;
                 }
             }
@@ -692,7 +752,7 @@ impl Solver {
         for cursor in (self.forced..uip+1).rev() {
             let lit = self.prop_queue[cursor];
 
-            if self.flags[lit].is_set(Flag::IsInConflictClause) {
+            if self.flags[lit].is_set(LitFlag::IsInConflictClause) {
                 count_used += 1;
             }
 
@@ -740,23 +800,7 @@ impl Solver {
         remove_agenda.truncate(limit);
 
         // Actually proceed to the clause deletion
-        let nb_delete = remove_agenda.len();
-        for i in 0..nb_delete {
-            let id = remove_agenda[i];
-            let last   = self.clauses.len()-1;
-
-            self.remove_clause(id);
-
-            // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
-            // the agenda (to avoid panicking on out of bounds index)
-            if id != last {
-                for j in i+1..nb_delete {
-                    if remove_agenda[j] == last {
-                        remove_agenda[j] = id;
-                    }
-                }
-            }
-        }
+        self.remove_all(&mut remove_agenda);
 
         // Remove 'protection' on all the clauses
         for c in self.clauses.iter_mut() {
@@ -872,6 +916,143 @@ impl Solver {
     }
 
     // -------------------------------------------------------------------------------------------//
+    // ---------------------------- SIMPLIFICATION / PREPROCESSING -------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
+    /// This method simplifies the problem by detecting the subsumed clauses, and the possible self
+    /// subsuming resolutions. It is intended to be used as a *preprocessing* step and it does not
+    /// constitute a valid implementation for an inprocessing technique that would be exectuted at
+    /// some time different than the root level.
+    /// For instance, it uses the root level assumption to decide unsatisfiability upon conflict.
+    fn simplify(&mut self) {
+        assert_eq!(self.nb_decisions, 0, "The simplify method can only be called at root level");
+
+        let mut forced_checked = 0;
+        let mut deleted = FixedBitSet::with_capacity(self.clauses.len());
+
+        let mut fixpoint = false;
+        while !fixpoint {
+            if self.is_unsat { return; }
+
+            // clear the queue
+            let clauses = self.simplifiers.ones().collect::<Vec<ClauseId>>();
+            self.simplifiers.clear();
+
+            self.simplify_using_unit_clauses(forced_checked, &mut deleted);
+            forced_checked = self.forced;
+
+            for cid in clauses {
+                if self.is_unsat { return; }
+                if deleted.contains(cid) { continue; }
+
+                let clause = self.clauses[cid].clone(); // FIXME: find a better way. (Maybe fool the borrow checker)
+                self.backward_subsumption_check(&clause, cid, &mut deleted);
+            }
+
+            self.remove_all(&mut deleted.ones().collect::<Vec<ClauseId>>());
+            deleted.clear();
+
+            self.is_unsat |= self.propagate().is_some();
+
+            fixpoint = forced_checked == self.forced && self.simplifiers.ones().next().is_none();
+        }
+
+    }
+
+    fn simplify_using_unit_clauses(&mut self, forced_checked: usize, deleted: &mut FixedBitSet) {
+        // Because unit clauses are implicitly represented
+        for i in forced_checked..self.forced {
+            if self.is_unsat { return; }
+
+            let dummy = Clause::new(vec![!self.prop_queue[i]], false);
+            self.backward_subsumption_check(&dummy, CLAUSE_ELIDED, deleted);
+        }
+    }
+
+    /// Performs a backward subsumption check for the given clause `c`.
+    /// It adds all the clauses that need to be removed to the 'deleted' bitset and all the clauses
+    /// that have changed to the 'touched' bit set.
+    ///
+    /// # Side Effect
+    /// This method sets the `is_unsat` flag whenever it proves unsatisfiability
+    ///
+    fn backward_subsumption_check(&mut self, c: &Clause, index_of_c: ClauseId, deleted: &mut FixedBitSet ) {
+        for j in 0..self.clauses.len() {
+            // skip the ones that are stale
+            if deleted.contains(j) {
+                continue;
+            }
+
+            // I obviously subsume myself. Not skipping me would just be an expensive way to clear
+            // the database.
+            if j == index_of_c {
+                continue;
+            }
+
+            if c.subsumes(&self.clauses[j]) {
+                deleted.insert(j);
+            } else if let Some((r, pos)) = c.try_strengthen(&mut self.clauses[j]) {
+                // c is now subsumed. It can safely be removed
+                if index_of_c != CLAUSE_ELIDED { deleted.insert(index_of_c); }
+                // j has been touched
+                self.simplifiers.insert(j);
+                // if we tampered with the watched literals, we have to fix them
+                if pos < 2 {
+                    // detach from the removed literal
+                    for w in 0..self.watchers[r].len() {
+                        if self.watchers[r][w] == j {
+                            self.watchers[r].swap_remove(w); break;
+                        }
+                    }
+
+                    // attach new literal IF THAT IS POSSIBLE
+                    if self.clauses[j].len() >= 2 {
+                        let new_watch = self.clauses[j][pos];
+                        // if the literal we watch is not falsified, we can keep it. Otherwise, we
+                        // need to find an other one.
+                        if !self.valuation.is_false(new_watch) {
+                            self.watchers[new_watch].push(j);
+                        } else {
+                            match self.clauses[j].find_new_literal(new_watch, &self.valuation) {
+                                Ok(l) => {
+                                    // l was found, its ok. We only need to start watching it
+                                    self.watchers[l].push(j);
+                                },
+                                Err(l) => {
+                                    if self.valuation.is_false(l) {
+                                        self.is_unsat = true;
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // if we found the empty clause, the problem is solved and provably unsat
+                if self.clauses[j].len() == 0 {
+                    self.is_unsat = true;
+                    return;
+                }
+
+                // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+                if self.clauses[j].len() == 1 {
+                    let only_lit = self.clauses[j][0];
+                    self.is_unsat |= self.assign(only_lit, Some(CLAUSE_ELIDED)).is_err();
+
+                    if self.is_unsat {
+                        return;
+                    } else {
+                        // that clause is implicitly represented on the trail.
+                        deleted.insert(j);
+                    }
+                }
+            }
+        }
+    }
+
+
+    // -------------------------------------------------------------------------------------------//
     // ---------------------------- MISC ---------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
@@ -888,9 +1069,9 @@ impl Solver {
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
     ///
-    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
-        if !flags[lit].is_set(Flag::IsMarked) {
-            flags[lit].set(Flag::IsMarked);
+    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags<LitFlag>>, var_order: &mut VariableOrdering ) {
+        if !flags[lit].is_set(LitFlag::IsMarked) {
+            flags[lit].set(LitFlag::IsMarked);
             var_order.bump(lit.var() );
         }
     }
@@ -1681,10 +1862,10 @@ mod tests {
             assert!(solver.assign(lit, None).is_ok());
 
             // TODO turn these to dedicated methods
-            solver.flags[-lit].set(Flag::IsMarked);
-            solver.flags[-lit].set(Flag::IsImplied);
-            solver.flags[-lit].set(Flag::IsNotImplied);
-            solver.flags[-lit].set(Flag::IsInConflictClause);
+            solver.flags[-lit].set(LitFlag::IsMarked);
+            solver.flags[-lit].set(LitFlag::IsImplied);
+            solver.flags[-lit].set(LitFlag::IsNotImplied);
+            solver.flags[-lit].set(LitFlag::IsInConflictClause);
 
         }
 
@@ -1697,16 +1878,16 @@ mod tests {
         for i in 1..6 {
             let l = lit(i);
             assert!(solver.valuation.is_true(l));
-            assert!(!solver.flags[l].is_set(Flag::IsMarked));
-            assert!(!solver.flags[l].is_set(Flag::IsImplied));
-            assert!(!solver.flags[l].is_set(Flag::IsNotImplied));
-            assert!(!solver.flags[l].is_set(Flag::IsInConflictClause));
+            assert!(!solver.flags[l].is_set(LitFlag::IsMarked));
+            assert!(!solver.flags[l].is_set(LitFlag::IsImplied));
+            assert!(!solver.flags[l].is_set(LitFlag::IsNotImplied));
+            assert!(!solver.flags[l].is_set(LitFlag::IsInConflictClause));
 
             assert!(solver.valuation.is_false(-l));
-            assert!(!solver.flags[-l].is_set(Flag::IsMarked));
-            assert!(!solver.flags[-l].is_set(Flag::IsImplied));
-            assert!(!solver.flags[-l].is_set(Flag::IsNotImplied));
-            assert!(!solver.flags[-l].is_set(Flag::IsInConflictClause));
+            assert!(!solver.flags[-l].is_set(LitFlag::IsMarked));
+            assert!(!solver.flags[-l].is_set(LitFlag::IsImplied));
+            assert!(!solver.flags[-l].is_set(LitFlag::IsNotImplied));
+            assert!(!solver.flags[-l].is_set(LitFlag::IsInConflictClause));
         }
     }
 
@@ -1721,10 +1902,10 @@ mod tests {
             assert!(solver.assign(lit, None).is_ok());
 
             // TODO turn these to dedicated methods
-            solver.flags[-lit].set(Flag::IsMarked);
-            solver.flags[-lit].set(Flag::IsImplied);
-            solver.flags[-lit].set(Flag::IsNotImplied);
-            solver.flags[-lit].set(Flag::IsInConflictClause);
+            solver.flags[-lit].set(LitFlag::IsMarked);
+            solver.flags[-lit].set(LitFlag::IsImplied);
+            solver.flags[-lit].set(LitFlag::IsNotImplied);
+            solver.flags[-lit].set(LitFlag::IsInConflictClause);
         }
 
         assert_eq!(5, solver.nb_decisions);
@@ -1830,17 +2011,35 @@ mod tests {
     }
 
     #[test]
+    fn simplify_unit(){
+        let mut solver = Solver::new(5);
+        solver.add_problem_clause(&mut vec![1, 2]);
+        solver.add_problem_clause(&mut vec![-1]);
+        solver.add_problem_clause(&mut vec![-2]);
+
+        let mut del = FixedBitSet::with_capacity(4);
+        assert!(!solver.is_unsat);
+        assert_eq!("Clause([Literal(1), Literal(2)])", format!("{:?}", solver.clauses[0]));
+        assert_eq!(2, solver.forced);
+        solver.simplify_using_unit_clauses(0, &mut del);
+        assert!(solver.is_unsat);
+
+        //assert_eq!("[]", format!("{:?}", solver.clauses[0] ));
+        //assert_eq!("", format!("{:?}", del.ones().collect::<Vec<ClauseId>>() ));
+    }
+
+    #[test]
     fn solve_must_be_false_when_problem_is_not_trivially_unsat(){
         let mut solver = Solver::new(6);
-        solver.add_problem_clause(&mut vec![ 3, 1]);
-        solver.add_problem_clause(&mut vec![-1, 4]);
-        solver.add_problem_clause(&mut vec![-1,-4]);
+        solver.add_problem_clause(&mut vec![ 3, 1]); // 0
+        solver.add_problem_clause(&mut vec![-1, 4]); // 1
+        solver.add_problem_clause(&mut vec![-1,-4]); // 2
 
-        solver.add_problem_clause(&mut vec![ 5, 2]);
-        solver.add_problem_clause(&mut vec![-2, 6]);
-        solver.add_problem_clause(&mut vec![-2,-6]);
+        solver.add_problem_clause(&mut vec![ 5, 2]); // 3
+        solver.add_problem_clause(&mut vec![-2, 6]); // 4
+        solver.add_problem_clause(&mut vec![-2,-6]); // 5
 
-        solver.add_problem_clause(&mut vec![ 1, 2]);
+        solver.add_problem_clause(&mut vec![ 1, 2]); // 6
 
         solver.var_order.bump(var(3));
         solver.var_order.decay();

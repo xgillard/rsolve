@@ -84,6 +84,14 @@ impl Clause {
     pub fn find_new_literal(&mut self, watched:Literal, valuation:&Valuation) -> Result<Literal, Literal> {
         let literals = &mut self.literals;
 
+        if literals.len() == 0 {
+            return Err(lit(i32::max_value()));
+        }
+        if literals.len() < 2 {
+            let l = literals[0];
+            return if valuation.is_false(l) { Err(l) } else { Ok(l) }
+        }
+
         // Make sure that other WL is at position zero. This way, whenever the clause
         // becomes unit, we are certain to respect invariant B.
         if watched == literals[0] { literals.swap(0, 1); }
@@ -166,8 +174,8 @@ impl Clause {
     ///
     /// # Return Value
     /// When `other` could be strengthened using self, this function returns Some((l,w)) where `l`
-    /// stands for the literal that has been removed and `w` is a boolean indicating whether or not
-    /// `w` was watched.
+    /// stands for the literal that has been removed and `w` is an integer indicating the index of
+    /// the literal `r` before it was removed. (This can be used to fix watched literals lists).
     ///
     /// In all other cases where no self subsuming resolution could be carried out, this function
     /// has no effect and returns None.
@@ -176,7 +184,7 @@ impl Clause {
     /// When other can be strenghtened, it is modified *in place* (the hash is recomputed here) this
     /// means that it is *the caller's responsibility to find a new literal to watch* if that is
     /// applicable. Just as much as it is his responsibility to remove self from the clause database
-    pub fn try_strengthen(&self, other: &mut Clause) -> Option<(Literal, bool)> {
+    pub fn try_strengthen(&self, other: &mut Clause) -> Option<(Literal, usize)> {
         if self.len() > other.len() { return None; }
 
         for i in 0..other.literals.len() {
@@ -214,7 +222,7 @@ impl Clause {
                     // It was no collision, reduce it.
                     other.swap_remove(pos);
                     other.rehash();
-                    return Some((x, pos <= 1))
+                    return Some((x, pos))
                 } else {
                     // Yet an other case of collision
                     return None;
@@ -567,7 +575,7 @@ mod tests {
         let a = Clause::new(vec![lit(1), lit(5), lit(-2)], true);
         let mut b = Clause::new(vec![lit(1), lit(5), lit(2), lit(3)], true);
 
-        assert_eq!(Some((lit(2), false)), a.try_strengthen(&mut b));
+        assert_eq!(Some((lit(2), 2)), a.try_strengthen(&mut b));
     }
 
     #[test]
@@ -587,7 +595,7 @@ mod tests {
         let a = Clause::new(vec![lit(1), lit(-2)], true);
         let mut b = Clause::new(vec![lit(1), lit(2), lit(3)], true);
 
-        assert_eq!(Some((lit(2), true)), a.try_strengthen(&mut b));
+        assert_eq!(Some((lit(2), 1)), a.try_strengthen(&mut b));
     }
 
     #[test]
