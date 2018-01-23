@@ -108,7 +108,7 @@ impl Solver {
             var_order    : VariableOrdering::new(nb_vars as uint),
             phase_saving : Valuation::new(nb_vars),
             max_learned  : 1000,
-            restart_strat: LubyRestartStrategy::new(1),
+            restart_strat: LubyRestartStrategy::new(100),
             decisions    : vec![],
             decisions_pos: vec![],
             level        : VarIdxVec::from(vec![0; nb_vars]),
@@ -815,69 +815,11 @@ impl Solver {
     /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
     /// * Between Restarts and Backjumps (Ramos, Van Der Tak, Heule -- 2011)
     fn restart(&mut self) {
-        match self.find_partial_restart_pos() {
-            None => return,
-            Some(position) => {
-                self.rollback(position);
-
-                self.restart_strat.set_next_limit();
-                self.nb_restarts += 1;
-                self.nb_conflicts_since_restart = 0;
-            }
-        }
-    }
-
-    /// Finds the position as of which the trail will not be reused when using the partial restart
-    /// strategy (reused trail) described in:
-    /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
-    ///
-    /// # Return Value
-    /// The index (position == usize) of the first variable that will not be part of the reused
-    /// trail. It returns None when there are no decisions that can be made (that is to say, when
-    /// the trail will be integrally reused).
-    fn find_partial_restart_pos(&mut self) -> Option<usize> {
-        match self.peek_next_decision_var() {
-            None => None,
-            Some(next_var) => {
-                let next_score = self.var_order.get_score(next_var);
-                let mut position= self.prop_queue.len();
-
-                for i in 0..self.decisions.len() {
-                    let decision = self.decisions[i];
-                    if next_score > self.var_order.get_score(decision) {
-                        position = self.decisions_pos[i];
-                        break;
-                    }
-                }
-
-                Some(position)
-            }
-        }
-    }
-
-    /// finds the next variable that would have been assigned if we performed a full restart
-    fn peek_next_decision_var(&mut self) -> Option<Variable> {
-        let mut result = None;
-        let mut undo_stack = vec![];
-
-        // find the next (unassigned) decision variable
-        while !self.var_order.is_empty() {
-            let variable = self.var_order.pop_top();
-            let positive = Literal::positive(variable);
-
-            undo_stack.push(variable);
-            if self.valuation.is_undef(positive) {
-                result = Some(variable);
-                break;
-            }
-        }
-
-        // leave the var_order in the same state as it was before entering this method
-        for v in undo_stack {
-            self.var_order.push_back(v);
-        }
-
-        return result;
+        let pos = self.forced;
+        self.rollback(pos);
+        self.restart_strat.set_next_limit();
+        self.nb_restarts += 1;
+        self.nb_conflicts_since_restart = 0;
     }
 
     // -------------------------------------------------------------------------------------------//
