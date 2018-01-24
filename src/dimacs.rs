@@ -2,7 +2,7 @@ use std::io;
 use std::io::*;
 
 use core::*;
-use solving::Solver;
+use solving::*;
 
 pub fn parse_header<Source>(input : &mut Lines<Source>) -> Solver
     where Source : io::BufRead {

@@ -51,7 +51,7 @@ pub struct Solver {
 
     // ~~~ # Heuristics ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The variable ordering heuristic (derivative of vsids)
-    var_order    : VariableOrdering,
+    var_order    : VSIDS,
     /// The partial valuation remembering the last phase of each variable
     phase_saving : Valuation,
     /// The number of clauses that can be learned before we start to try cleaning up the database
@@ -105,7 +105,7 @@ impl Solver {
             clauses      : vec![],
             is_unsat     : false,
 
-            var_order    : VariableOrdering::new(nb_vars as uint),
+            var_order    : VSIDS::new(nb_vars),
             phase_saving : Valuation::new(nb_vars),
             max_learned  : 1000,
             restart_strat: LubyRestartStrategy::new(100),
@@ -888,7 +888,7 @@ impl Solver {
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
     ///
-    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VariableOrdering ) {
+    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
             var_order.bump(lit.var() );
@@ -905,9 +905,11 @@ impl Solver {
 mod tests {
     use super::*;
 
+    type SOLVER = Solver;
+
     #[test]
     fn assign_yields_ok_when_lit_is_undef(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
@@ -915,7 +917,7 @@ mod tests {
 
     #[test]
     fn assign_yields_ok_when_lit_is_true(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
@@ -926,7 +928,7 @@ mod tests {
 
     #[test]
     fn assign_yields_err_when_lit_is_false(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
@@ -937,7 +939,7 @@ mod tests {
 
     #[test]
     fn assign_enqueues_new_literl(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(0, solver.prop_queue.len());
         assert!(solver.assign(lit(1), None).is_ok());
@@ -946,7 +948,7 @@ mod tests {
 
     #[test]
     fn assign_does_not_enqueue_when_literal_is_already_on_queue(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(0, solver.prop_queue.len());
         assert!(solver.assign(lit(1), None).is_ok());
@@ -957,7 +959,7 @@ mod tests {
 
     #[test]
     fn assign_increases_nb_decisions_upon_new_decision() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert_eq!(0, solver.nb_decisions);
         assert!(solver.assign(lit(1), None).is_ok());
@@ -965,7 +967,7 @@ mod tests {
     }
     #[test]
     fn assign_does_not_change_nb_decisions_upon_propagation() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![1, -2, -3]);
 
         assert_eq!(0, solver.nb_decisions);
@@ -975,7 +977,7 @@ mod tests {
     }
     #[test]
     fn assign_increases_forced_when_at_root_level() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![1, -2, -3]);
 
         assert_eq!(0, solver.forced);
@@ -985,7 +987,7 @@ mod tests {
     }
     #[test]
     fn assign_does_not_change_forced_when_not_at_root_level() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![1, -2, -3]);
 
         assert_eq!(0, solver.forced);
@@ -997,7 +999,7 @@ mod tests {
 
     #[test]
     fn assign_sets_the_value_and_reason() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![1, -2, -3]);
 
         assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
@@ -1017,7 +1019,7 @@ mod tests {
 
     #[test]
     fn decide_must_yield_all_unassigned_values(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         solver.phase_saving.set_value(lit(1), Bool::True);
         solver.phase_saving.set_value(lit(2), Bool::True);
@@ -1041,7 +1043,7 @@ mod tests {
 
     #[test]
     fn decide_must_skip_all_assigned_values(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert!(solver.assign(lit(3), None).is_ok());
         assert!(solver.assign(lit(1), None).is_ok());
@@ -1056,7 +1058,7 @@ mod tests {
 
     #[test]
     fn decide_must_yield_none_when_all_vars_are_assigned(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         assert!(solver.assign(lit(3), None).is_ok());
         assert!(solver.assign(lit(2), None).is_ok());
@@ -1067,7 +1069,7 @@ mod tests {
 
     #[test]
     fn decide_must_return_values_in_heuristic_order(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         solver.phase_saving.set_value(lit(1), Bool::True);
         solver.phase_saving.set_value(lit(2), Bool::True);
@@ -1097,7 +1099,7 @@ mod tests {
 
     #[test]
     fn decide_must_return_the_saved_polarity(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.var_order.bump(var(1));
         solver.var_order.decay();
         solver.var_order.bump(var(2));
@@ -1126,7 +1128,7 @@ mod tests {
 
     #[test]
     fn propagate_processes_everything_until_a_fixed_point_is_reached(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         // initialize the constraint database
         solver.add_problem_clause(&mut vec![1, -2, -3]);
@@ -1147,7 +1149,7 @@ mod tests {
 
     #[test]
     fn propagate_stops_when_a_conflict_is_detected() {
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
 
         // initialize the constraint database
         solver.add_problem_clause(&mut vec![ 1, -2, -3]);
@@ -1175,7 +1177,7 @@ mod tests {
          * d /-- g ---------------/             \--- -c
          *
          */
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![ 1,-8, 3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 4,-5]); // c1
         solver.add_problem_clause(&mut vec![ 5,-6, 7]); // c2
@@ -1196,7 +1198,7 @@ mod tests {
     // isUIP must be true when the literal is a decision
     #[test]
     fn is_uip_must_be_true_when_literal_is_a_decision() {
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
 
         solver.assign(lit(2), None).expect("2 must be assignable");
         solver.assign(lit(4), None).expect("4 must be assignable");
@@ -1218,7 +1220,7 @@ mod tests {
          * d /-- g ---------------/             \--- -c
          *
          */
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![ 1,-8, 3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 4,-5]); // c1
         solver.add_problem_clause(&mut vec![ 5,-6, 7]); // c2
@@ -1243,7 +1245,7 @@ mod tests {
     // isUIP must be false when the literal is not false/marked
     #[test]
     fn is_uip_must_be_false_when_literal_is_not_false() {
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![1]);
 
         // simulate clause activation
@@ -1268,7 +1270,7 @@ mod tests {
          * d /-- g ---------------/             \--- -c
          *
          */
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![ 1,-8, 3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 4,-5]); // c1
         solver.add_problem_clause(&mut vec![ 5,-6, 7]); // c2
@@ -1302,7 +1304,7 @@ mod tests {
          * d /-- g ---------------/             \--- -c
          *
          */
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![ 1,-8, 3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 4,-5]); // c1
         solver.add_problem_clause(&mut vec![ 5,-6, 7]); // c2
@@ -1333,7 +1335,7 @@ mod tests {
          * 2 ---+---+- 4 -/
          *
          */
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 1, 2,-4]);
@@ -1362,7 +1364,7 @@ mod tests {
          * 2 ---+     +- 4 -/
          *
          */
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 3,-4]);
@@ -1390,7 +1392,7 @@ mod tests {
          * d /-- g ---------------/             \--- -c
          *
          */
-        let mut solver = Solver::new(8);
+        let mut solver = SOLVER::new(8);
         solver.add_problem_clause(&mut vec![ 1,-8, 3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 4,-5]); // c1
         solver.add_problem_clause(&mut vec![ 5,-6, 7]); // c2
@@ -1419,7 +1421,7 @@ mod tests {
          * 2 ---+---+- 4 -/
          *
          */
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 1, 2,-4]);
@@ -1447,7 +1449,7 @@ mod tests {
          * 2 ---+     +- 4 -/
          *
          */
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 3,-4]);
@@ -1479,7 +1481,7 @@ mod tests {
          *    \                      /
          *     \--------------------/
          */
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 1, 2,-4]);
@@ -1510,7 +1512,7 @@ mod tests {
          *         \         \
          *          4 -------+ -5
          */
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         solver.add_problem_clause(&mut vec![ 1,-4]);
         solver.add_problem_clause(&mut vec![ 2,-3]);
@@ -1542,7 +1544,7 @@ mod tests {
          * 2 ---+     +- 4 -/
          *
          */
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]);
         solver.add_problem_clause(&mut vec![ 3,-4]);
@@ -1574,7 +1576,7 @@ mod tests {
          *         \         \
          *          4 -------+ -5
          */
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         solver.add_problem_clause(&mut vec![ 1,-4]);
         solver.add_problem_clause(&mut vec![ 2,-3]);
@@ -1610,7 +1612,7 @@ mod tests {
          *         \                                                    \
          *          4 --------------------------------------------------+ -5
          */
-        let mut solver = Solver::new(10);
+        let mut solver = SOLVER::new(10);
 
         solver.add_problem_clause(&mut vec![ 1,-4]);
         solver.add_problem_clause(&mut vec![ 2,-3]);
@@ -1652,7 +1654,7 @@ mod tests {
     #[test]
     // rollback undoes all the choices (propagated or not) until the given limit
     fn rollback_undoes_all_choices_until_the_limit() {
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         for i in 1..6 {
             assert!(solver.assign(lit(i), None).is_ok());
@@ -1674,7 +1676,7 @@ mod tests {
     //
     // -> No decision is undone but the analysis is reset
     fn rollback_drops_all_flags_from_the_given_limit_until_the_root(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         for i in 1..6 {
             let lit = lit(i);
@@ -1714,7 +1716,7 @@ mod tests {
     // rollback drops the analysis markers on all the elements between the root
     // level (included) and the given limit
     fn rollback_undoes_and_clears_analysis() {
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         for i in 1..6 {
             let lit = lit(i);
@@ -1734,7 +1736,7 @@ mod tests {
 
     #[test]
     fn rollback_saves_the_old_phase() {
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         for i in 1..6 {
             let lit = lit(i);
@@ -1753,14 +1755,14 @@ mod tests {
 
     #[test]
     fn solve_must_be_true_when_problem_is_vacuously_satisfiable(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         assert!(solver.solve());
     }
 
     #[test]
     fn solve_must_be_true_when_problem_is_trivially_satisfiable(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_problem_clause(&mut vec![1, 2, 3, 4, 5]);
         assert!(solver.solve());
     }
@@ -1778,7 +1780,7 @@ mod tests {
          *         \         \
          *          4 -------+ -5
          */
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
 
         solver.add_problem_clause(&mut vec![1, -4]);
         solver.add_problem_clause(&mut vec![2, -3]);
@@ -1796,14 +1798,14 @@ mod tests {
 
     #[test]
     fn solve_must_be_true_when_problem_is_vacuously_true(){
-        let mut solver = Solver::new(0);
+        let mut solver = SOLVER::new(0);
         let satisfiable = solver.solve();
         assert!(satisfiable);
     }
 
     #[test]
     fn solve_must_be_false_when_problem_is_explicitly_unsat_empty_problem(){
-        let mut solver = Solver::new(0);
+        let mut solver = SOLVER::new(0);
         solver.add_problem_clause(&mut vec![]);
 
         let satisfiable = solver.solve();
@@ -1812,7 +1814,7 @@ mod tests {
 
     #[test]
     fn solve_must_be_false_when_problem_is_explicitly_unsat_nonempty_problem(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_problem_clause(&mut vec![1, 2, -3, 4]);
         solver.add_problem_clause(&mut vec![]);
 
@@ -1822,7 +1824,7 @@ mod tests {
 
     #[test]
     fn solve_must_be_false_when_problem_is_trivially_unsat(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_problem_clause(&mut vec![1, 2]);
         solver.add_problem_clause(&mut vec![-1]);
         solver.add_problem_clause(&mut vec![-2]);
@@ -1831,7 +1833,7 @@ mod tests {
 
     #[test]
     fn solve_must_be_false_when_problem_is_not_trivially_unsat(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_problem_clause(&mut vec![ 3, 1]);
         solver.add_problem_clause(&mut vec![-1, 4]);
         solver.add_problem_clause(&mut vec![-1,-4]);
@@ -1851,7 +1853,7 @@ mod tests {
 
     #[test]
     fn is_locked_must_be_false_when_the_clause_is_not_the_reason_of_any_assignment(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![-1,-2,-3]);
 
         let clause = get_last_constraint(&solver);
@@ -1860,7 +1862,7 @@ mod tests {
 
     #[test]
     fn is_locked_must_be_true_when_the_clause_is_the_reason_of_some_assignment(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![-1,-2,-3]);
 
         let clause = get_last_constraint(&solver);
@@ -1872,7 +1874,7 @@ mod tests {
 
     #[test]
     fn is_locked_must_be_false_after_the_reason_has_been_reset(){
-        let mut solver = Solver::new(3);
+        let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![-1,-2,-3]);
 
         let clause = get_last_constraint(&solver);
@@ -1888,7 +1890,7 @@ mod tests {
     // This scenario is contrived, it does not respect what a solver would normally do (learned
     // clauses do not derive from the original problem statement)
     fn reduce_db_removes_worst_clauses(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
         solver.add_learned_clause(vec![lit(1), lit(2)]);
 
@@ -1912,7 +1914,7 @@ mod tests {
     // be the reason for the assignment of some literal while this would never happen in practice.
     // Nevertheless, it lets me test what I intend to test (and just that!)
     fn reduce_db_does_not_remove_locked_clauses(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(2), lit(1), lit(3), lit(4), lit(5)]);
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3)]);
 
@@ -1930,7 +1932,7 @@ mod tests {
 
     #[test]
     fn reduce_db_does_not_impact_problem_clauses(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_problem_clause(&mut vec![2, 3, 4, 5]);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(4)]);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
@@ -1953,7 +1955,7 @@ mod tests {
 
     #[test]
     fn reduce_db_does_not_remove_clauses_of_size_2_or_less(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(1), lit(3)]);
         solver.add_learned_clause(vec![lit(2), lit(3)]);
         solver.add_learned_clause(vec![lit(4), lit(3)]);
@@ -1967,7 +1969,7 @@ mod tests {
 
     #[test]
     fn reduce_db_tries_to_removes_half_of_the_clauses(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
@@ -1986,7 +1988,7 @@ mod tests {
 
     #[test]
     fn reduce_db_does_not_remove_recent_clauses(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
@@ -2002,7 +2004,7 @@ mod tests {
 
     #[test]
     fn reduce_db_does_not_remove_clauses_having_a_recently_updated_lbd(){
-        let mut solver = Solver::new(5);
+        let mut solver = SOLVER::new(5);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
@@ -2022,7 +2024,7 @@ mod tests {
     #[test]
     fn reduce_db_must_maintain_a_coherent_clause_database() {
         // The ids of the clauses 'replacing' the removed ones must be adapted
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2092,7 +2094,7 @@ mod tests {
     /// A. remove_clause must remove all watchers pointing to the removed clause
     /// B. remove_clause must redirect the watchers pointing to the last clause
     fn remove_clause_must_remove_the_clause_from_the_watched_lists(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2132,7 +2134,7 @@ mod tests {
 
     #[test]
     fn remove_clause_must_erase_its_locking_reason_if_there_is_one(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2166,7 +2168,7 @@ mod tests {
 
     #[test]
     fn remove_clause_must_redirect_the_reason_of_the_last_clause(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2200,7 +2202,7 @@ mod tests {
 
     #[test]
     fn remove_clause_must_not_redirect_watchers_when_the_last_clause_is_removed(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2240,7 +2242,7 @@ mod tests {
 
     #[test]
     fn remove_clause_must_not_redirect_reason_when_the_last_clause_is_removed(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]); // c1
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
@@ -2274,7 +2276,7 @@ mod tests {
 
     #[test]
     fn add_learned_clause_must_set_an_initial_lbd(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.level[var(1)] = 4;
         solver.level[var(3)] = 5;
@@ -2288,7 +2290,7 @@ mod tests {
     #[allow(non_snake_case)]
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__no_gap(){
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.level[var(1)] = 3;
         solver.level[var(2)] = 4;
@@ -2305,7 +2307,7 @@ mod tests {
     #[test]
     fn literal_block_distance_counts_the_number_of_blocks_setting_some_literal_of_the_clause__with_gap(){
         // not all blocks are contiguous
-        let mut solver = Solver::new(6);
+        let mut solver = SOLVER::new(6);
 
         solver.level[var(1)] = 3;
         solver.level[var(2)] = 4;
@@ -2332,7 +2334,7 @@ mod tests {
          *     \--------------------/
          * 7 ----------------------/
          */
-        let mut solver = Solver::new(7);
+        let mut solver = SOLVER::new(7);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
@@ -2359,7 +2361,7 @@ mod tests {
 
     #[test]
     fn test_level_is_zero_for_forced_literals() {
-        let mut solver = Solver::new(7);
+        let mut solver = SOLVER::new(7);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
@@ -2395,7 +2397,7 @@ mod tests {
          *     \--------------------/
          * 7 ----------------------/
          */
-        let mut solver = Solver::new(7);
+        let mut solver = SOLVER::new(7);
 
         solver.add_problem_clause(&mut vec![ 1, 2,-3]); // c0
         solver.add_problem_clause(&mut vec![ 1, 2,-4]); // c1
@@ -2428,7 +2430,7 @@ mod tests {
     // TODO: tests for partial restarts (check that permutation reuse is implemented) !!
 
 
-    fn get_last_constraint(solver : &Solver) -> ClauseId {
+    fn get_last_constraint(solver : &SOLVER) -> ClauseId {
         solver.clauses.len() - 1
     }
 }
