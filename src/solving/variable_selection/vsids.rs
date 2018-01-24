@@ -19,13 +19,13 @@ pub struct VSIDS {
 
 
 impl VariableSelection for VSIDS {
-
     /// Creates a new VSIDS capable of dealing with `capa` variables.
+    #[inline]
     fn new(capa: usize) -> VSIDS {
         VSIDS {
-            heap           : VarHeap::new(capa),
-            vsids_increment: 1.0 ,
-            vsids_decay    : 0.75
+            heap: VarHeap::new(capa),
+            vsids_increment: 1.0,
+            vsids_decay: 0.75
         }
     }
 
@@ -40,10 +40,12 @@ impl VariableSelection for VSIDS {
         if self.heap.position[var] <= self.heap.size { self.heap.swim(var); }
     }
 
+
     /// Decays the score of all the variables. Given that this is implemented as a MiniSat-like
     /// E-VSIDS, it simply consists in multiplying the score by 1/vsids_decay
+    #[inline]
     fn decay(&mut self) {
-        self.vsids_increment *= 1.0/self.vsids_decay;
+        self.vsids_increment *= 1.0 / self.vsids_decay;
 
         if self.vsids_increment > 1e100 {
             // rescale all the scores
@@ -53,7 +55,6 @@ impl VariableSelection for VSIDS {
             self.vsids_increment *= 1e-100;
         }
     }
-
     /// return true iff there is no element left in the heap
     #[inline]
     fn is_empty(&self) -> bool { self.heap.is_empty() }

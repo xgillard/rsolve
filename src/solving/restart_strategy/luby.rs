@@ -1,8 +1,10 @@
+use super::RestartStrategy;
+
 /// This structure encapsulates the restart strategy of the solver.
 /// It is implemented using D.Knuth's 'reluctant doubling' algorithm
 /// to generate luby sequence in $$\theta(1)$$ [time and space]
 #[derive(Debug)]
-pub struct LubyRestartStrategy {
+pub struct Luby {
     /// the tuple from the reluctant doubling algorithm
     u : isize,
     v : isize,
@@ -13,29 +15,34 @@ pub struct LubyRestartStrategy {
     shift : usize
 }
 
-impl LubyRestartStrategy {
-    /// Creates a new instance having the given unit run
-    pub fn new(unit : usize) -> LubyRestartStrategy {
-        LubyRestartStrategy {
-            u     : 1,
-            v     : 1,
-            shift : 0,
-            unit
-        }
-    }
-
+impl RestartStrategy for Luby {
     /// Tells whether the solver should restart given it has already encountered `nb_conflicts`
-    pub fn is_restart_required(&self, nb_conflict: usize) -> bool {
+    #[inline]
+    fn is_restart_required(&self, nb_conflict: usize) -> bool {
         nb_conflict > (self.unit << self.shift)
     }
 
     /// Sets the next conflict limit before the next restart
-    pub fn set_next_limit(&mut self) {
+    #[inline]
+    fn set_next_limit(&mut self) {
         self.shift = self.luby();
+    }
+}
+
+impl Luby {
+    /// Creates a new instance having the given unit run
+    pub fn new(unit: usize) -> Luby {
+        Luby {
+            u: 1,
+            v: 1,
+            shift: 0,
+            unit
+        }
     }
 
     /// This is the core of the strategy where D. Knuth's reluctant doubling algorithm
     /// is implemented to generate a luby sequence.
+    #[inline]
     fn luby(&mut self) -> usize {
         let res = self.v;
 
@@ -56,7 +63,7 @@ mod tests {
 
     #[test]
     fn luby_generates_luby_sequence() {
-        let mut tested = LubyRestartStrategy::new(100);
+        let mut tested = Luby::new(100);
 
         assert_eq!(tested.luby(), 1);
         assert_eq!(tested.luby(), 1);
@@ -77,8 +84,8 @@ mod tests {
 
     #[test]
     fn is_restart_needed_follows_luby_sequence(){
-        let mut tested = LubyRestartStrategy::new(100);
-        
+        let mut tested = Luby::new(100);
+
         // 0
         assert_eq!(tested.is_restart_required(  1), false);
         assert_eq!(tested.is_restart_required( 10), false);

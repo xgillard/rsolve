@@ -21,6 +21,7 @@ pub struct VarHeap {
 
 impl VarHeap {
     /// Creates a new heap with the given capacity.
+    #[inline]
     pub fn new(capa: usize) -> VarHeap {
         let mut ret = VarHeap {
             capa    : capa,

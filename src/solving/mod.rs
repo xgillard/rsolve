@@ -4,6 +4,7 @@ mod flags;
 mod solver;
 
 pub use self::variable_selection::*;
-pub use self::restart_strategy::LubyRestartStrategy;
+pub use self::restart_strategy::*;
+
 pub use self::flags::{Flag, Flags};
 pub use self::solver::Solver;

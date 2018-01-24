@@ -57,11 +57,8 @@ pub struct Solver {
     /// The number of clauses that can be learned before we start to try cleaning up the database
     max_learned  : usize,
     /// The restart strategt (luby)
-    restart_strat: LubyRestartStrategy,
-    /// The variables that have been decided upon
-    decisions    : Vec<Variable>,
-    decisions_pos: Vec<usize>,
-    /// The last level at which some variable was assigned
+    restart_strat: Luby,
+    /// The last level at which some variable was assigned (intervenes in the LBD computation)
     level        : VarIdxVec<u32>,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -108,9 +105,7 @@ impl Solver {
             var_order    : VSIDS::new(nb_vars),
             phase_saving : Valuation::new(nb_vars),
             max_learned  : 1000,
-            restart_strat: LubyRestartStrategy::new(100),
-            decisions    : vec![],
-            decisions_pos: vec![],
+            restart_strat: Luby::new(100),
             level        : VarIdxVec::from(vec![0; nb_vars]),
 
             watchers     : LitIdxVec::with_capacity(nb_vars),
@@ -409,8 +404,6 @@ impl Solver {
                 // if its a decision, make sure to take that into account
                 if reason.is_none() {
                     self.nb_decisions += 1;
-                    self.decisions.push(lit.var());
-                    self.decisions_pos.push(self.prop_queue.len()-1)
                 }
 
                 // if the solver is at root level, then assignment must follow from the problem
@@ -815,7 +808,7 @@ impl Solver {
     /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
     /// * Between Restarts and Backjumps (Ramos, Van Der Tak, Heule -- 2011)
     fn restart(&mut self) {
-        let pos = self.forced;
+        let pos = self.root();
         self.rollback(pos);
         self.restart_strat.set_next_limit();
         self.nb_restarts += 1;
@@ -852,11 +845,6 @@ impl Solver {
     fn undo(&mut self, lit: Literal) {
         if self.is_decision(lit) {
             self.nb_decisions -= 1;
-
-            // TODO maybe assert that popped value == lit.var()
-            //assert_eq!(self.decisions.pop(), Some(lit.var()));
-            self.decisions.pop();
-            self.decisions_pos.pop();
         }
 
         // clear all flags
@@ -895,6 +883,11 @@ impl Solver {
         }
     }
 
+    /// Tells the position of the 'root' of the problem. That is to say the position in the trail
+    /// as of where the search starts. All literals before the root() are at level 0 and cannot
+    /// be challenge since they directly follow from the problem statement.
+    #[inline]
+    pub fn root(&self) -> usize { self.forced }
 }
 
 // -----------------------------------------------------------------------------------------------
