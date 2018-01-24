@@ -1,5 +1,7 @@
 use super::*;
 
+use std::convert::From;
+
 // -----------------------------------------------------------------------------------------------
 /// # Variable
 /// This is as a basic variable as you can imagine. This type simply wraps an unsigned integer and
@@ -8,20 +10,28 @@ use super::*;
 #[derive(Clone, Copy, Eq, Debug)]
 pub struct Variable(uint);
 
-impl Variable {
-    /// Creates a Variable based on its numeric identifier
-    pub fn from(x: uint) -> Variable {
-        assert_ne!(x, 0, "Variables must be strictly positive");
-        Variable(x)
+impl From<usize> for Variable {
+    #[inline]
+    fn from(v : usize) -> Variable {
+        assert_ne!(v, 0, "Variables must be strictly positive");
+        Variable(v as uint)
     }
-
+}
+impl From<u32> for Variable {
     #[inline]
-    /// Returns the numeric identifier of the variable
-    pub fn to_usize(self) -> usize { self.0 as usize }
+    fn from(v : u32) -> Variable {
+        assert_ne!(v, 0, "Variables must be strictly positive");
+        Variable(v as uint)
+    }
+}
 
+impl From<Variable> for usize {
     #[inline]
-    /// Returns the numeric identifier of the variable
-    pub fn to_uint (self) -> uint { self.0 }
+    fn from(v : Variable) -> usize { v.0 as usize }
+}
+impl From<Variable> for u32 {
+    #[inline]
+    fn from(v : Variable) -> u32 { v.0 }
 }
 
 /// Because variables have an identity (besides their memory location), the Variable type implements
@@ -50,11 +60,6 @@ mod tests {
     #[test]
     fn from_should_work_on_positive_number() {
         assert_eq!("Variable(42)", format!("{:?}", var(42)));
-    }
-
-    #[test]
-    fn to_usize_should_return_raw_value() {
-        assert_eq!(42, var(42).to_usize());
     }
 
     #[test]

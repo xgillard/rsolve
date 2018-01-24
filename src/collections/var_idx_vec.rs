@@ -47,14 +47,14 @@ impl<T> Index<Variable> for VarIdxVec<T> {
 
     #[inline]
     fn index(&self, v: Variable) -> &Self::Output {
-        &self.0[v.to_usize()-1]
+        &self.0[usize::from(v)-1]
     }
 }
 
 impl<T> IndexMut<Variable> for VarIdxVec<T> {
     #[inline]
     fn index_mut(&mut self, v: Variable) -> &mut Self::Output {
-        &mut self.0[v.to_usize()-1]
+        &mut self.0[usize::from(v)-1]
     }
 }
 
@@ -99,7 +99,7 @@ mod tests {
             assert_eq!( i, v[Variable::from( i as uint)] );
         }
 
-        v[Variable::from(42)];
+        v[Variable::from(42_u32)];
     }
 
     #[test]
@@ -110,7 +110,7 @@ mod tests {
             v.push(i);
         }
 
-        v[Variable::from(2)] = 64;
+        v[Variable::from(2_usize)] = 64;
         assert_eq!("VarIdxVec([1, 64, 3, 4, 5])", format!("{:?}", v))
     }
 }

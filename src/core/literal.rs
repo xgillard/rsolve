@@ -27,12 +27,12 @@ impl Literal {
 
     /// Returns the positive literal associated with the given variable
     pub fn positive(v: Variable) -> Literal {
-        Literal(  v.to_uint() as iint )
+        Literal(  u32::from(v) as iint )
     }
 
     /// Returns the negative literal associated with the given variable
     pub fn negative(v: Variable) -> Literal {
-        Literal(-(v.to_uint() as iint))
+        Literal(-(u32::from(v) as iint))
     }
 
     /// Return the variable associated with the given literal

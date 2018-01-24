@@ -263,7 +263,7 @@ mod tests {
             tested.pop_top();
         }
 
-        tested.push_back(Variable::from(4));
+        tested.push_back(Variable::from(4_u32));
         assert!( !tested.is_empty() );
     }
 
@@ -273,7 +273,7 @@ mod tests {
     fn bump_must_fail_for_zero(){
         let mut tested = VariableOrdering::new(MAX);
 
-        tested.bump(Variable::from(0));
+        tested.bump(Variable::from(0_u32));
     }
 
     #[test]
@@ -290,9 +290,9 @@ mod tests {
     /// bump changes the score, and adapts the position
     fn bump_must_update_the_score_and_position(){
         let mut tested = VariableOrdering::new(MAX);
-        tested.bump(Variable::from(50));
+        tested.bump(Variable::from(50_u32));
 
-        assert_eq!( tested.pop_top(), Variable::from(50));
+        assert_eq!( tested.pop_top(), Variable::from(50_u32));
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
         for _ in 1..MAX+1 { tested.pop_top(); }
 
         assert!(tested.is_empty());
-        tested.bump(Variable::from(42));
+        tested.bump(Variable::from(42_u32));
         assert!(tested.is_empty());
     }
 
@@ -315,9 +315,9 @@ mod tests {
         for _ in 1..MAX+1 { tested.pop_top(); }
 
         assert!(tested.is_empty());
-        tested.push_back(Variable::from(5));
-        tested.bump(Variable::from(42));
-        assert_eq!(tested.pop_top(), Variable::from(5));
+        tested.push_back(Variable::from(5_u32));
+        tested.bump(Variable::from(42_u32));
+        assert_eq!(tested.pop_top(), Variable::from(5_u32));
         assert!(tested.is_empty());
     }
 
@@ -329,13 +329,13 @@ mod tests {
         for _ in 1..MAX+1 { tested.pop_top(); }
 
         //assert!(tested.is_empty());
-        tested.bump(Variable::from(42));
+        tested.bump(Variable::from(42_u32));
         assert!(tested.is_empty());
 
         // refill it
         for i in 1..MAX+1 { tested.push_back(Variable::from(i)); }
 
-        assert_eq!(tested.pop_top(), Variable::from(42));
+        assert_eq!(tested.pop_top(), Variable::from(42_u32));
     }
 
     #[test]
@@ -343,7 +343,7 @@ mod tests {
     /// pushBack fails for zero
     fn push_back_must_fail_for_zero(){
         let mut tested = VariableOrdering::new(MAX);
-        tested.push_back(Variable::from(0));
+        tested.push_back(Variable::from(0_u32));
     }
 
     #[test]
@@ -353,10 +353,10 @@ mod tests {
         // empty it
         for _ in 1..MAX+1 { tested.pop_top(); }
         // only 10 on heap
-        tested.push_back(Variable::from(10));
-        tested.push_back(Variable::from(10));
+        tested.push_back(Variable::from(10_u32));
+        tested.push_back(Variable::from(10_u32));
 
-        assert_eq!(Variable::from(10), tested.pop_top());
+        assert_eq!(Variable::from(10_u32), tested.pop_top());
         assert!(tested.is_empty());
     }
 
@@ -367,10 +367,10 @@ mod tests {
         // empty it
         for _ in 1..MAX+1 { tested.pop_top(); }
         // only 10 on heap
-        tested.push_back(Variable::from(10));
+        tested.push_back(Variable::from(10_u32));
 
         assert!( !tested.is_empty());
-        assert_eq!(Variable::from(10), tested.pop_top());
+        assert_eq!(Variable::from(10_u32), tested.pop_top());
         assert!(tested.is_empty());
     }
 
@@ -381,23 +381,23 @@ mod tests {
         // empty it
         for _ in 1..MAX+1 { tested.pop_top(); }
 
-        tested.bump(Variable::from(2));
+        tested.bump(Variable::from(2_u32));
         tested.decay();
-        tested.bump(Variable::from(3));
+        tested.bump(Variable::from(3_u32));
         tested.decay();
-        tested.bump(Variable::from(7));
+        tested.bump(Variable::from(7_u32));
         tested.decay();
-        tested.bump(Variable::from(9));
+        tested.bump(Variable::from(9_u32));
 
-        tested.push_back(Variable::from(7));
-        tested.push_back(Variable::from(3));
-        tested.push_back(Variable::from(9));
-        tested.push_back(Variable::from(2));
+        tested.push_back(Variable::from(7_u32));
+        tested.push_back(Variable::from(3_u32));
+        tested.push_back(Variable::from(9_u32));
+        tested.push_back(Variable::from(2_u32));
 
-        assert_eq!(tested.pop_top(),  Variable::from(9));
-        assert_eq!(tested.pop_top(),  Variable::from(7));
-        assert_eq!(tested.pop_top(),  Variable::from(3));
-        assert_eq!(tested.pop_top(),  Variable::from(2));
+        assert_eq!(tested.pop_top(),  Variable::from(9_u32));
+        assert_eq!(tested.pop_top(),  Variable::from(7_u32));
+        assert_eq!(tested.pop_top(),  Variable::from(3_u32));
+        assert_eq!(tested.pop_top(),  Variable::from(2_u32));
         assert_eq!(tested.is_empty(), true);
     }
 
@@ -423,8 +423,8 @@ mod tests {
         for i in 0..MAX {
             let popped = tested.pop_top();
             assert_eq!(popped, Variable::from(MAX-i));
-            assert!   (popped.to_usize() < last);
-            last = popped.to_usize();
+            assert!   (usize::from(popped) < last);
+            last = popped.into();
         }
     }
 
