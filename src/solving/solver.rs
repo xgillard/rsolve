@@ -11,7 +11,6 @@ use self::fixedbitset::FixedBitSet;
 type  ClauseId = usize;
 const CLAUSE_ELIDED: ClauseId = usize::MAX;
 
-type Watcher  = ClauseId;
 type Conflict = ClauseId;
 type Reason   = ClauseId;
 
@@ -39,7 +38,7 @@ pub struct Solver {
 
     // ~~~ # Solver State ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// The current assignment of boolean values to variables
-    pub valuation: Valuation,
+    valuation: VarIdxVec<Bool>,
     /// All the clauses that make the problem
     clauses : Vec<Clause>,
 
@@ -53,7 +52,7 @@ pub struct Solver {
     /// The variable ordering heuristic (derivative of vsids)
     var_order    : VSIDS,
     /// The partial valuation remembering the last phase of each variable
-    phase_saving : Valuation,
+    phase_saving : FixedBitSet,
     /// The number of clauses that can be learned before we start to try cleaning up the database
     max_learned  : usize,
     /// The restart strategt (luby)
@@ -88,6 +87,39 @@ pub struct Solver {
     flags        : LitIdxVec<Flags>
 }
 
+impl Valuation for Solver {
+    #[inline]
+    fn get_valuation_data    (&self) -> &VarIdxVec<Bool> {
+        &self.valuation
+    }
+    #[inline]
+    fn get_valuation_data_mut(&mut self) -> &mut VarIdxVec<Bool> {
+        &mut self.valuation
+    }
+}
+
+impl ClauseDatabase for Solver {
+    #[inline]
+    fn get_clauses(&self) -> &[Clause] {
+        &self.clauses
+    }
+    #[inline]
+    fn get_clauses_mut(&mut self) -> &mut [Clause] {
+        &mut self.clauses
+    }
+}
+
+impl WatchedLiterals for Solver {
+    #[inline]
+    fn get_watchers(&self) -> &[Vec<Watcher>] {
+        &self.watchers
+    }
+    #[inline]
+    fn get_watchers_mut(&mut self) -> &mut [Vec<Watcher>] {
+        &mut self.watchers
+    }
+}
+
 impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
@@ -98,12 +130,12 @@ impl Solver {
             nb_conflicts : 0,
             nb_learned   : 0,
 
-            valuation    : Valuation::new(nb_vars),
+            valuation    : VarIdxVec::from(vec![Bool::Undef; nb_vars]),
             clauses      : vec![],
             is_unsat     : false,
 
             var_order    : VSIDS::new(nb_vars),
-            phase_saving : Valuation::new(nb_vars),
+            phase_saving : FixedBitSet::with_capacity(1+nb_vars),
             max_learned  : 1000,
             restart_strat: Luby::new(100),
             level        : VarIdxVec::from(vec![0; nb_vars]),
@@ -369,12 +401,11 @@ impl Solver {
             let variable = self.var_order.pop_top();
             let positive = Literal::from_var(variable, Sign::Positive);
 
-            if self.valuation.is_undef(positive) {
-                let saved = self.phase_saving.get_value(positive);
-                match saved {
-                    Bool::True  => return Some(positive),
-                    Bool::False => return Some(!positive),
-                    Bool::Undef => return Some(!positive)
+            if self.is_undef(positive) {
+                if self.phase_saving.contains(variable.into() ) {
+                    return Some(positive);
+                } else {
+                    return Some(!positive);
                 }
             }
         }
@@ -392,11 +423,11 @@ impl Solver {
     /// # Note
     /// We always push the *negation* of the assigned literal on the stack
     fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
-        match self.valuation.get_value(lit) {
+        match self.get_value(lit) {
             Bool::True  => Ok(()),
             Bool::False => Err(()),
             Bool::Undef => {
-                self.valuation.set_value(lit, Bool::True);
+                self.set_value(lit, Bool::True);
                 self.reason[lit.var()] = reason;
                 self.prop_queue.push(!lit);
 
@@ -465,7 +496,7 @@ impl Solver {
             let watcher = self.watchers[lit][i];
             self.watchers[lit].swap_remove(i);
 
-            let new_literal_found = self.clauses[watcher].find_new_literal(lit, &self.valuation);
+            let new_literal_found = self.find_new_literal(watcher, lit);
             match new_literal_found {
                 Ok (l) => {
                     // l was found, its ok. We only need to start watching it
@@ -764,7 +795,7 @@ impl Solver {
         if clause.len() < 2 { return true; }
 
         let lit = clause[0];
-        if self.valuation.is_undef(lit) {
+        if self.is_undef(lit) {
             return false;
         } else {
             let reason = self.reason[lit.var()];
@@ -851,12 +882,14 @@ impl Solver {
         self.flags[lit].reset();
 
         // clear the value & reason (and save the phase for later use)
-        self.phase_saving.set_value(lit, self.valuation.get_value(lit));
-        self.valuation.set_value(lit, Bool::Undef);
-        self.reason[lit.var()] = None;
+        let v = lit.var();
+        self.phase_saving.set(v.into(), self.valuation[v] == Bool::True );
+
+        self.set_value(lit, Bool::Undef);
+        self.reason[v] = None;
 
         // make the decision possible again
-        self.var_order.push_back(lit.var());
+        self.var_order.push_back(v);
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -904,7 +937,7 @@ mod tests {
     fn assign_yields_ok_when_lit_is_undef(){
         let mut solver = SOLVER::new(3);
 
-        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::Undef, solver.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
     }
 
@@ -912,10 +945,10 @@ mod tests {
     fn assign_yields_ok_when_lit_is_true(){
         let mut solver = SOLVER::new(3);
 
-        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::Undef, solver.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
 
-        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::True, solver.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
     }
 
@@ -923,10 +956,10 @@ mod tests {
     fn assign_yields_err_when_lit_is_false(){
         let mut solver = SOLVER::new(3);
 
-        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::Undef, solver.get_value(lit(1)));
         assert!(solver.assign(lit(1), None).is_ok());
 
-        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
+        assert_eq!(Bool::True, solver.get_value(lit(1)));
         assert!(solver.assign(lit(-1), None).is_err());
     }
 
@@ -995,15 +1028,15 @@ mod tests {
         let mut solver = SOLVER::new(3);
         solver.add_problem_clause(&mut vec![1, -2, -3]);
 
-        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(1)));
-        assert_eq!(Bool::Undef, solver.valuation.get_value(lit(2)));
+        assert_eq!(Bool::Undef, solver.get_value(lit(1)));
+        assert_eq!(Bool::Undef, solver.get_value(lit(2)));
 
         assert!(solver.assign(lit(2), None).is_ok()); // decision changes the DL
         let reason = Some(0); // DL > 0 so not at root
         assert!(solver.assign(lit(1), reason).is_ok());
 
-        assert_eq!(Bool::True, solver.valuation.get_value(lit(1)));
-        assert_eq!(Bool::True, solver.valuation.get_value(lit(2)));
+        assert_eq!(Bool::True, solver.get_value(lit(1)));
+        assert_eq!(Bool::True, solver.get_value(lit(2)));
 
         assert!(solver.reason[var(1)].is_some());
         assert!(solver.reason[var(2)].is_none())
@@ -1656,11 +1689,11 @@ mod tests {
 
         solver.rollback(0);
 
-        assert!(solver.valuation.is_undef(lit(1)));
-        assert!(solver.valuation.is_undef(lit(2)));
-        assert!(solver.valuation.is_undef(lit(3)));
-        assert!(solver.valuation.is_undef(lit(4)));
-        assert!(solver.valuation.is_undef(lit(5)));
+        assert!(solver.is_undef(lit(1)));
+        assert!(solver.is_undef(lit(2)));
+        assert!(solver.is_undef(lit(3)));
+        assert!(solver.is_undef(lit(4)));
+        assert!(solver.is_undef(lit(5)));
     }
 
     #[test]
@@ -1691,13 +1724,13 @@ mod tests {
         assert_eq!(5, solver.nb_decisions);
         for i in 1..6 {
             let l = lit(i);
-            assert!(solver.valuation.is_true(l));
+            assert!(solver.is_true(l));
             assert!(!solver.flags[l].is_set(Flag::IsMarked));
             assert!(!solver.flags[l].is_set(Flag::IsImplied));
             assert!(!solver.flags[l].is_set(Flag::IsNotImplied));
             assert!(!solver.flags[l].is_set(Flag::IsInConflictClause));
 
-            assert!(solver.valuation.is_false(-l));
+            assert!(solver.is_false(-l));
             assert!(!solver.flags[-l].is_set(Flag::IsMarked));
             assert!(!solver.flags[-l].is_set(Flag::IsImplied));
             assert!(!solver.flags[-l].is_set(Flag::IsNotImplied));

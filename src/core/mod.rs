@@ -8,7 +8,6 @@ mod variable;
 mod sign;
 mod literal;
 mod clause;
-mod valuation;
 
 // re-export all types
 pub use self::bool::Bool;
@@ -16,7 +15,6 @@ pub use self::variable::Variable;
 pub use self::sign::Sign;
 pub use self::literal::Literal;
 pub use self::clause::Clause;
-pub use self::valuation::Valuation;
 
 /// A shortcut notation to make a literal out of a number value
 pub fn lit(l: iint) -> Literal  { Literal::from(l) }

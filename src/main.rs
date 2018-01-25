@@ -84,10 +84,9 @@ fn print_result(solver: &Solver, config: &CliArgs, satisfiable: bool, elapsed: &
 }
 
 fn print_model(solver: &Solver) {
-    let valuation = &solver.valuation;
     let mut model = String::from("v ");
-    for v in 1..valuation.nb_vars()+1 {
-        let var_value = match valuation.get_value(lit(v as iint)) {
+    for v in 1..solver.nb_vars()+1 {
+        let var_value = match solver.get_value(lit(v as iint)) {
             Bool::True =>  v as isize,
             Bool::False=>-(v as isize),
             Bool::Undef=> panic!("The problem is supposed to be SOLVED ! How can it be ?")
