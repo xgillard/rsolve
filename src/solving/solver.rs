@@ -687,10 +687,8 @@ impl Solver {
     // ---------------------------- RESTART ------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-    /// Implements a partial restart that tries to avoid redoing unnecessary decisions-propagations
-    /// by reusing the current assignment trail. For further reference, please refer to :
-    /// * Reusing the Assignment Trail in CDCL solvers (Van Der Tak, Ramos, Heule -- 2011)
-    /// * Between Restarts and Backjumps (Ramos, Van Der Tak, Heule -- 2011)
+    /// Restarts the search to find a better path towards the solution.
+    /// The choice of when to restart is left to the implementation of the restart strategy.
     fn restart(&mut self) {
         let pos = self.root();
         self.rollback(pos);
@@ -2466,9 +2464,6 @@ mod tests {
         solver.assign(lit(-4), Some(1));
         assert_eq!(2, solver.clauses[1].get_lbd());
     }
-
-    // TODO: tests for partial restarts (check that permutation reuse is implemented) !!
-
 
     fn get_last_constraint(solver : &SOLVER) -> ClauseId {
         solver.clauses.len() - 1

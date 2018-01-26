@@ -25,6 +25,7 @@ use std::time::*;
 // TODO: Dev  - self-subsuming resolution
 // TODO: Dev  - variable-elimination
 // TODO: Dev  - unhiding
+// TODO: Ref. - Maybe create traits Backtracking and Restart
 // TODO: Ref. - Add getters for public fields of the solver
 
 /// This simple structure encapsulates the options and arguments that are passed to the solver using
