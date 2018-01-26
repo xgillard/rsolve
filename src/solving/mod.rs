@@ -8,14 +8,8 @@ pub type Reason   = ClauseId;
 
 pub const CLAUSE_ELIDED: ClauseId = usize::MAX;
 
-mod clause_database;
-pub use self::clause_database::*;
-
-mod valuation;
-pub use self::valuation::*;
-
-mod watched_literals;
-pub use self::watched_literals::*;
+mod traits;
+pub use self::traits::*;
 
 mod variable_selection;
 mod restart_strategy;

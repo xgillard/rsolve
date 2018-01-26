@@ -21,39 +21,7 @@ pub trait ClauseDatabase {
     /// Removes the clause identified by `c_id` from the database.
     fn remove_clause(&mut self, c_id: ClauseId);
 
-    /// Returns a reference to the underlying set of clauses.
-    fn get_clauses(&self) -> &[Clause];
-
-    /// Returns a mutable reference to the underlying set of clauses
-    fn get_clauses_mut(&mut self) -> &mut Vec<Clause>;
-
-    /// Returns a reference to the clause identified by `c_id`
-    fn get_clause(&self, c_id: ClauseId) -> &Clause { &self.get_clauses()[c_id]}
-
-    /// Returns a mutable reference to the clause identified by `c_id`
-    fn get_clause_mut(&mut self, c_id: ClauseId) -> &mut Clause { &mut self.get_clauses_mut()[c_id]}
-
     /// Proceed to the deletion of a set of clauses in the database.
     /// All the clauses identified by an id in the remove_agenda will be removed.
-    fn remove_all(&mut self, remove_agenda: &mut [ClauseId]) {
-        // Actually proceed to the clause deletion
-        let nb_delete = remove_agenda.len();
-        for i in 0..nb_delete {
-            let id = remove_agenda[i];
-
-            let last = self.get_clauses().len() - 1;
-            self.remove_clause(id);
-
-            // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
-            // the in the agenda (to avoid panicking on out of bounds index)
-            if id != last {
-                for j in i+1..nb_delete {
-                    if remove_agenda[j] == last {
-                        remove_agenda[j] = id;
-                    }
-                }
-            }
-        }
-    }
-
+    fn remove_all(&mut self, remove_agenda: &mut [ClauseId]);
 }
