@@ -87,112 +87,6 @@ pub struct Solver {
     flags        : LitIdxVec<Flags>
 }
 
-impl Valuation for Solver {
-    #[inline]
-    fn get_valuation_data    (&self) -> &VarIdxVec<Bool> {
-        &self.valuation
-    }
-    #[inline]
-    fn get_valuation_data_mut(&mut self) -> &mut VarIdxVec<Bool> {
-        &mut self.valuation
-    }
-}
-
-impl ClauseDatabase for Solver {
-    #[inline]
-    fn get_clauses(&self) -> &[Clause] {
-        &self.clauses
-    }
-    #[inline]
-    fn get_clauses_mut(&mut self) -> &mut Vec<Clause> {
-        &mut self.clauses
-    }
-
-    /// This is where we do the bulk of the work to add a clause to a clause database.
-    ///
-    /// # Return Value
-    /// This function returns a result (Ok, Err) with the id of the clause that has been added. It
-    /// returns Err when adding the clause makes the whole problem UNSAT.
-    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
-        // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drat {
-            println!("a {}", clause.to_dimacs());
-        }
-
-        let c_id= self.clauses.len();
-
-        // if it is the empty clause that we're adding, the problem is solved and provably unsat
-        if clause.len() == 0 {
-            self.is_unsat = true;
-            return Err(());
-        }
-
-        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
-        if clause.len() == 1 {
-            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
-            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
-        }
-
-        // -- Activate the clause --
-        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
-        // at least two literals
-        let wl1 = clause[0];
-        let wl2 = clause[1];
-
-        self.clauses.push(clause);
-        self.watchers[wl1].push(c_id);
-        self.watchers[wl2].push(c_id);
-
-        return Ok(c_id);
-    }
-
-    /// Removes a clause from the database.
-    ///
-    /// In order to keep a consistent state while removing a clause from the database, we must
-    /// ensure that :
-    /// - the clause identifier is removed from the all watchers list.
-    /// - no reason depends on the removed clause
-    /// - all references (watchers, reason) to the the clause that "recycles" the removed clause' id
-    ///   are renumbered appropriately. (Note: an identifier might not be recycled if the removed
-    ///   clause was the last one in database).
-    fn remove_clause(&mut self, clause_id: ClauseId) {
-        // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drat {
-            println!("d {}", self.clauses[clause_id].to_dimacs());
-        }
-
-        // Remove clause_id from the watchers lists
-        self.deactivate_clause(clause_id);
-
-        // Remove clause_id from the reason
-        self.unlock_clause(clause_id);
-
-        // If a clause has been renamed (index swap) reflect that
-        let last = self.clauses.len() - 1;
-        if last != clause_id {
-            self.rename_clause(last, clause_id);
-        }
-
-        // Effectively remove the clause
-        if self.clauses[clause_id].is_learned {
-            self.nb_learned -= 1;
-        }
-
-        self.clauses.swap_remove(clause_id);
-    }
-}
-
-impl WatchedLiterals for Solver {
-    #[inline]
-    fn get_watchers_list(&self) -> &LitIdxVec<Vec<Watcher>> {
-        &self.watchers
-    }
-    #[inline]
-    fn get_watchers_list_mut(&mut self) -> &mut LitIdxVec<Vec<Watcher>> {
-        &mut self.watchers
-    }
-}
-
 impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- PROBLEM DEFINITION -------------------------------------------//
@@ -920,6 +814,112 @@ impl Solver {
                 }
             }
         }
+    }
+}
+
+impl Valuation for Solver {
+    #[inline]
+    fn get_valuation_data    (&self) -> &VarIdxVec<Bool> {
+        &self.valuation
+    }
+    #[inline]
+    fn get_valuation_data_mut(&mut self) -> &mut VarIdxVec<Bool> {
+        &mut self.valuation
+    }
+}
+
+impl ClauseDatabase for Solver {
+    #[inline]
+    fn get_clauses(&self) -> &[Clause] {
+        &self.clauses
+    }
+    #[inline]
+    fn get_clauses_mut(&mut self) -> &mut Vec<Clause> {
+        &mut self.clauses
+    }
+
+    /// This is where we do the bulk of the work to add a clause to a clause database.
+    ///
+    /// # Return Value
+    /// This function returns a result (Ok, Err) with the id of the clause that has been added. It
+    /// returns Err when adding the clause makes the whole problem UNSAT.
+    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drat {
+            println!("a {}", clause.to_dimacs());
+        }
+
+        let c_id= self.clauses.len();
+
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause.len() == 0 {
+            self.is_unsat = true;
+            return Err(());
+        }
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause.len() == 1 {
+            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
+            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
+        }
+
+        // -- Activate the clause --
+        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
+        // at least two literals
+        let wl1 = clause[0];
+        let wl2 = clause[1];
+
+        self.clauses.push(clause);
+        self.watchers[wl1].push(c_id);
+        self.watchers[wl2].push(c_id);
+
+        return Ok(c_id);
+    }
+
+    /// Removes a clause from the database.
+    ///
+    /// In order to keep a consistent state while removing a clause from the database, we must
+    /// ensure that :
+    /// - the clause identifier is removed from the all watchers list.
+    /// - no reason depends on the removed clause
+    /// - all references (watchers, reason) to the the clause that "recycles" the removed clause' id
+    ///   are renumbered appropriately. (Note: an identifier might not be recycled if the removed
+    ///   clause was the last one in database).
+    fn remove_clause(&mut self, clause_id: ClauseId) {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drat {
+            println!("d {}", self.clauses[clause_id].to_dimacs());
+        }
+
+        // Remove clause_id from the watchers lists
+        self.deactivate_clause(clause_id);
+
+        // Remove clause_id from the reason
+        self.unlock_clause(clause_id);
+
+        // If a clause has been renamed (index swap) reflect that
+        let last = self.clauses.len() - 1;
+        if last != clause_id {
+            self.rename_clause(last, clause_id);
+        }
+
+        // Effectively remove the clause
+        if self.clauses[clause_id].is_learned {
+            self.nb_learned -= 1;
+        }
+
+        self.clauses.swap_remove(clause_id);
+    }
+}
+
+impl WatchedLiterals for Solver {
+    #[inline]
+    fn get_watchers_list(&self) -> &LitIdxVec<Vec<Watcher>> {
+        &self.watchers
+    }
+    #[inline]
+    fn get_watchers_list_mut(&mut self) -> &mut LitIdxVec<Vec<Watcher>> {
+        &mut self.watchers
     }
 }
 
