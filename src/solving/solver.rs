@@ -55,7 +55,7 @@ pub struct Solver {
     phase_saving : FixedBitSet,
     /// The number of clauses that can be learned before we start to try cleaning up the database
     max_learned  : usize,
-    /// The restart strategt (luby)
+    /// The restart strategy (luby)
     restart_strat: Luby,
     /// The last level at which some variable was assigned (intervenes in the LBD computation)
     level        : VarIdxVec<u32>,
@@ -91,7 +91,6 @@ impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- PROBLEM DEFINITION -------------------------------------------//
     // -------------------------------------------------------------------------------------------//
-
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
             drat: false,
@@ -225,13 +224,12 @@ impl Solver {
                         return false;
                     }
 
-                    if self.nb_learned > self.max_learned {
-                        self.reduce_db();
-                        self.max_learned = (self.max_learned * 3) / 2;
+                    if self.should_restart() {
+                        self.restart();
                     }
 
-                    if self.restart_strat.is_restart_required(self.nb_conflicts_since_restart) {
-                        self.restart();
+                    if self.should_reduce_db() {
+                        self.reduce_db();
                     }
                 },
                 None => {
@@ -515,12 +513,6 @@ impl Solver {
 
     /// Returns true iff recursive analysis showed `lit` to be implied by other literals
     ///
-    /// # Note
-    /// This function is implemented as an associated function in order to get over the complaints
-    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
-    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
-    /// the state are required to be muted.
-    ///
     /// # Bibliographic reference
     /// For further reference on recursive clause minimization, please refer to
     /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
@@ -585,6 +577,13 @@ impl Solver {
     // ---------------------------- CLAUSE DATABASE REDUCTION ------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+    /// Tells whether or not it is desireable to reduce the size of the database and forget some
+    /// of the less useful clauses
+    #[inline]
+    fn should_reduce_db(&self) -> bool {
+        self.nb_learned > self.max_learned
+    }
+
     /// This function tells whether or not a clause can be forgotten by the solver.
     /// Normally all clauses that are learned and not being used at the moment (not locked) can
     /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
@@ -617,28 +616,15 @@ impl Solver {
         remove_agenda.truncate(limit);
 
         // Actually proceed to the clause deletion
-        let nb_delete = remove_agenda.len();
-        for i in 0..nb_delete {
-            let id = remove_agenda[i];
-            let last   = self.clauses.len()-1;
-
-            self.remove_clause(id);
-
-            // Because remove_clause might have swapped `id` and `last`, we need to fix that up in
-            // the agenda (to avoid panicking on out of bounds index)
-            if id != last {
-                for j in i+1..nb_delete {
-                    if remove_agenda[j] == last {
-                        remove_agenda[j] = id;
-                    }
-                }
-            }
-        }
+        self.remove_all(&mut remove_agenda);
 
         // Remove 'protection' on all the clauses
         for c in self.clauses.iter_mut() {
             c.set_lbd_recently_updated(false);
         }
+
+        // allow the solver to learn somewhat more clauses before we reduce the database again
+        self.max_learned = (self.max_learned * 3) / 2;
     }
 
     /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
@@ -686,6 +672,12 @@ impl Solver {
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- RESTART ------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
+
+    /// Asks the restart strategy and tells if a complete restart of the search should be triggered
+    #[inline]
+    fn should_restart(&self) -> bool {
+        self.restart_strat.is_restart_required(self.nb_conflicts_since_restart)
+    }
 
     /// Restarts the search to find a better path towards the solution.
     /// The choice of when to restart is left to the implementation of the restart strategy.
