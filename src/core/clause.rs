@@ -9,26 +9,6 @@ use super::*;
 /// building blocks of the satisfiability checking problem (when encoded in CNF form).
 /// Concretely, a clause is a disjunction of literals, some of which need to be satisfied (else the
 /// whole problem is unsat).
-///
-/// The main responsibility of a clause object is to maintain a list of literals and arrange them
-/// to make propagation efficient. This is achieved using the two watched literals scheme. In
-/// particular, the Clause class is responsible for making sure that:
-/// - INVARIANT A: the two watched literals are at index 0 and 1
-/// - INVARIANT B: the propagated literal (if there is one) is at index 0.
-///
-/// The invariant A is specially useful when searching / assigning a new watched
-/// literals. It allows us to know immediately what literals are not watched and
-/// therefore elligible for watching.
-///
-/// The invariant B allows us to make an efficient implementation of the
-/// conflict analysis (and minimization) procedures. Indeed, it lets us immediately
-/// retrieve the antecedant of a propagated literal by starting the iteration
-/// at 1 instead of 0.
-///
-/// ## Note:
-/// The internal field is a Cell<Vec<T>> because we want a clause to be interior mutable.
-/// In other word, we dont care if the order of the literals changes as long as we have a
-///
 // -----------------------------------------------------------------------------------------------
 #[derive(Clone)]
 pub struct Clause {

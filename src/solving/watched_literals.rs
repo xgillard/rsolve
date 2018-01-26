@@ -3,6 +3,11 @@ use collections::*;
 
 use super::*;
 
+// -----------------------------------------------------------------------------------------------
+/// # Activation Status
+/// This enum communicates about the fact that (re-)activating a clause may fail or lead to special
+/// cases for which action might be required.
+// -----------------------------------------------------------------------------------------------
 #[must_use]
 #[derive(Debug, PartialEq)]
 pub enum ActivationStatus {
@@ -11,6 +16,34 @@ pub enum ActivationStatus {
     ConflictDetected
 }
 
+// -----------------------------------------------------------------------------------------------
+/// # Watched Literals
+/// This trait encapsulates the Two Watched Literal Scheme proposed in [ZS00, MMZ+01] to speed up
+/// the boolean constraint propagation.
+///
+/// In order to produce an efficient implementation of the Two Watched Literal Scheme,
+/// (the default implementations proposed in) this trait arrange the clauses literals so as to
+/// maintain the following two invariants:
+/// - INVARIANT A: the two watched literals are at index 0 and 1
+/// - INVARIANT B: the propagated literal (if there is one) is at index 0.
+///
+/// The invariant A is specially useful when searching / assigning a new watched
+/// literals. It allows us to know immediately what literals are not watched and
+/// therefore elligible for watching.
+///
+/// The invariant B allows us to make an efficient implementation of the
+/// conflict analysis (and minimization) procedures. Indeed, it lets us immediately
+/// retrieve the antecedant of a propagated literal by starting the iteration
+/// at 1 instead of 0.
+///
+/// [ZS00]   Implementing the davis–putnam method.
+///          Hantao Zhang and Mark Stickel.
+///          Journal of Automated Reasoning, 24(1-2):277–296, 2000.
+///
+/// [MMZ+01] Chaff: Engineering an efficient sat solver.
+///          Matthew W Moskewicz, Conor F Madigan, Ying Zhao, Lintao Zhang, and Sharad Malik.
+///          In Proceedings of the 38th annual Design Automation Conference, pages 530–535. ACM, 2001
+// -----------------------------------------------------------------------------------------------
 pub trait WatchedLiterals : ClauseDatabase + Valuation {
     /// Returns a reference to the vector (indexed by literals) which contains the watchers list
     /// associated with each literal.
@@ -152,6 +185,7 @@ pub trait WatchedLiterals : ClauseDatabase + Valuation {
 
 // -----------------------------------------------------------------------------------------------
 /// # Unit Tests
+/// Unit tests for the default implementation (which is not overwritten by the solver +so far+)
 // -----------------------------------------------------------------------------------------------
 #[cfg(test)]
 #[allow(unused_variables, unused_mut, unused_must_use)]
@@ -555,7 +589,7 @@ mod tests {
         assert_eq!(dummy.get_watchers(lit(-2)), &[0]);
 
         dummy.deactivate_clause(0);
-        
+
         assert_eq!(dummy.get_watchers(lit(-1)), &[ ]);
         assert_eq!(dummy.get_watchers(lit(-2)), &[ ]);
     }

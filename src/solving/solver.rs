@@ -776,6 +776,12 @@ impl Solver {
         }
     }
 
+    /// Renames the clause identified by `from` and gives it the new identifier `into`.
+    ///
+    /// This method is useful to fix the state of the solver after we removed a clause. Indeed, the
+    /// removal is done in O(1) but potentially moves a clause at an other location in the database.
+    /// In that case, is useful to _rename_ the clause so that other parts of the solver are also
+    /// aware of the location change.
     fn rename_clause(&mut self, from: ClauseId, into: ClauseId) {
         // Replace last by clause_id in the watchers lists
         for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
@@ -802,6 +808,11 @@ impl Solver {
         }
     }
 
+    /// If `c_id` is the reason for some unit propagation, it resets that reason and makes it None.
+    /// Using this function is *dangerous* for the correctness of the solver. It should only be used
+    /// before removing the clause or before a simplification round.
+    ///
+    /// !!! This function is too dangerous, I'm not sure of keeping it in the future. !!!
     #[inline]
     fn unlock_clause(&mut self, c_id: ClauseId) {
         // Remove clause_id from the reason
@@ -817,6 +828,10 @@ impl Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- IMPLEMENTATION OF THE SOLVER TRAITS --------------------------//
+// -------------------------------------------------------------------------------------------//
+
 impl Valuation for Solver {
     #[inline]
     fn get_valuation_data    (&self) -> &VarIdxVec<Bool> {
@@ -825,6 +840,17 @@ impl Valuation for Solver {
     #[inline]
     fn get_valuation_data_mut(&mut self) -> &mut VarIdxVec<Bool> {
         &mut self.valuation
+    }
+}
+
+impl WatchedLiterals for Solver {
+    #[inline]
+    fn get_watchers_list(&self) -> &LitIdxVec<Vec<Watcher>> {
+        &self.watchers
+    }
+    #[inline]
+    fn get_watchers_list_mut(&mut self) -> &mut LitIdxVec<Vec<Watcher>> {
+        &mut self.watchers
     }
 }
 
@@ -911,18 +937,6 @@ impl ClauseDatabase for Solver {
         self.clauses.swap_remove(clause_id);
     }
 }
-
-impl WatchedLiterals for Solver {
-    #[inline]
-    fn get_watchers_list(&self) -> &LitIdxVec<Vec<Watcher>> {
-        &self.watchers
-    }
-    #[inline]
-    fn get_watchers_list_mut(&mut self) -> &mut LitIdxVec<Vec<Watcher>> {
-        &mut self.watchers
-    }
-}
-
 // -----------------------------------------------------------------------------------------------
 /// # Unit Tests
 // -----------------------------------------------------------------------------------------------
