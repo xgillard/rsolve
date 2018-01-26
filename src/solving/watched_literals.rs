@@ -1,56 +1,28 @@
-use std::usize;
 use core::*;
 use collections::*;
 
-pub type ClauseId = usize;
+use super::*;
 
-pub type Watcher  = ClauseId;
-pub type Conflict = ClauseId;
-pub type Reason   = ClauseId;
-
-pub const CLAUSE_ELIDED: ClauseId = usize::MAX;
-
-
-pub trait ClauseDatabase {
-    fn get_clauses    (&self)     -> &    [Clause];
-    fn get_clauses_mut(&mut self) -> &mut [Clause];
-
-    fn get_clause    (&self,     c_id: ClauseId) -> &Clause     { &    self.get_clauses    ()[c_id]}
-    fn get_clause_mut(&mut self, c_id: ClauseId) -> &mut Clause { &mut self.get_clauses_mut()[c_id]}
-}
-
-pub trait Valuation {
-    fn get_valuation_data    (&    self) -> &    VarIdxVec<Bool>;
-    fn get_valuation_data_mut(&mut self) -> &mut VarIdxVec<Bool>;
-
-    fn get_value(&self, l: Literal) -> Bool {
-        let value = self.get_valuation_data()[l.var()];
-
-        match l.sign() {
-            Sign::Positive =>  value,
-            Sign::Negative => !value
-        }
-    }
-
-    fn set_value(&mut self, l: Literal, value : Bool) {
-        self.get_valuation_data_mut()[l.var()] = match l.sign() {
-            Sign::Positive =>  value,
-            Sign::Negative => !value
-        }
-    }
-
-    fn is_undef(&self, l: Literal) -> bool { self.get_value(l) == Bool::Undef }
-
-    fn is_true (&self, l: Literal) -> bool { self.get_value(l) == Bool::True  }
-
-    fn is_false(&self, l: Literal) -> bool { self.get_value(l) == Bool::False }
-
-    fn nb_vars(&self) -> usize { self.get_valuation_data().len() }
+#[must_use]
+#[derive(Debug)]
+pub enum ActivationStatus {
+    FoundTwoWatchers,
+    UnitDetected(Literal),
+    ConflictDetected
 }
 
 pub trait WatchedLiterals : ClauseDatabase + Valuation {
-    fn get_watchers    (&self)     -> &    [Vec<Watcher>];
-    fn get_watchers_mut(&mut self) -> &mut [Vec<Watcher>];
+    fn get_watchers_list    (&self)     -> &    LitIdxVec<Vec<Watcher>>;
+    fn get_watchers_list_mut(&mut self) -> &mut LitIdxVec<Vec<Watcher>>;
+
+    #[inline]
+    fn get_watchers(&self, lit: Literal) -> &[Watcher] {
+        &self.get_watchers_list()[lit]
+    }
+    #[inline]
+    fn get_watchers_mut(&mut self, lit: Literal) -> &mut Vec<Watcher> {
+        &mut self.get_watchers_list_mut()[lit]
+    }
 
     /// Tries to find a new literal that can be watched by the given clause.
     ///
@@ -91,17 +63,12 @@ pub trait WatchedLiterals : ClauseDatabase + Valuation {
         // the current assignment) or conflicting.
         return Err(other);
     }
-}
 
-/*
-
-    fn get_watchers    (&self)     -> &    [Vec<Watcher>];
-    fn get_watchers_mut(&mut self) -> &mut [Vec<Watcher>];
 
     /// Activate the given clause.
     /// It is assumed that clauses of size 0 and 1 are out of the way and we're certain to be left
     /// only with clauses having at least two literals.
-    fn activate_clause(&mut self, c_id : ClauseId) -> Result<ClauseId, ()> {
+    fn activate_clause(&mut self, c_id : ClauseId) -> ActivationStatus {
         let mut cnt = 0;
 
         let mut wl1 = self.get_clause(c_id)[0];
@@ -113,7 +80,7 @@ pub trait WatchedLiterals : ClauseDatabase + Valuation {
         {
             let mut watchables = self.get_clause(c_id).iter()
                 .enumerate()
-                .filter(|&(_, &l)| !self.valuation.is_false(l));
+                .filter(|&(_, &l)| !self.is_false(l));
 
             if let Some((p,&l)) = watchables.next() {
                 // avoid the possible case where both wl1 and wl2 designate the same literal
@@ -133,22 +100,39 @@ pub trait WatchedLiterals : ClauseDatabase + Valuation {
 
         // we couldn't find any literal that can possibly be watched
         if cnt == 0 {
-            return Err(());
-        }
-        // the clause is unit (under assignment) so we need to assert wl1.
-        // this is going to work since we know that wl1 is watchable
-        if cnt == 1 {
-            self.assign(wl1, Some(c_id)).unwrap();
+            return ActivationStatus::ConflictDetected;
         }
 
         // anyhow, remember that we must watch wl1 and wl2
-        self.clauses[c_id].swap(0, pl1);
-        self.clauses[c_id].swap(1, pl2);
+        self.get_clause_mut(c_id).swap(0, pl1);
+        self.get_clause_mut(c_id).swap(1, pl2);
 
-        self.watchers[wl1].push(c_id);
-        self.watchers[wl2].push(c_id);
+        self.get_watchers_mut(wl1).push(c_id);
+        self.get_watchers_mut(wl2).push(c_id);
 
-        return Ok(c_id);
+        if cnt == 1 {
+            // the clause is unit (under assignment) so we need to assert wl1.
+            // this is going to work since we know that wl1 is watchable
+            return ActivationStatus::UnitDetected(wl1);
+        } else {
+            return ActivationStatus::FoundTwoWatchers;
+        }
+    }
+
+    /// Deactivate the given clause.
+    /// It is assumed that clauses of size 0 and 1 are out of the way and we're certain to be left
+    /// only with clauses having at least two literals.
+    fn deactivate_clause(&mut self, c_id: ClauseId) {
+        for i in 0..2 {
+            let watched = self.get_clause(c_id)[i];
+
+            let nb_watchers = self.get_watchers(watched).len();
+            for j in (0..nb_watchers).rev() {
+                if self.get_watchers(watched)[j] == c_id {
+                    self.get_watchers_mut(watched).swap_remove(j);
+                    break;
+                }
+            }
+        }
     }
 }
-*/
