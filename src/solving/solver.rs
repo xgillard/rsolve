@@ -194,6 +194,10 @@ impl WatchedLiterals for Solver {
 }
 
 impl Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- PROBLEM DEFINITION -------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
             drat: false,
@@ -237,10 +241,6 @@ impl Solver {
         return solver;
     }
 
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- CLAUSE DB MANAGEMENT -----------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
     /// This function adds a problem clause to the database.
     ///
     /// # Note
@@ -252,7 +252,6 @@ impl Solver {
     /// # Return Value
     /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
     /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
-    // TODO: rename post constraint ?
     pub fn add_problem_clause(&mut self, c : &mut Vec<iint>) -> Result<ClauseId, ()> {
         // don't add the clause if it is a tautology
         c.sort_unstable_by(|x, y| x.abs().cmp(&y.abs()));
@@ -303,45 +302,6 @@ impl Solver {
         }
 
         return result;
-    }
-
-    fn rename_clause(&mut self, from: ClauseId, into: ClauseId) {
-        // Replace last by clause_id in the watchers lists
-        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
-            let watched = self.clauses[from][i];
-
-            let nb_watchers = self.watchers[watched].len();
-            for i in 0..nb_watchers {
-                if self.watchers[watched][i] == from {
-                    self.watchers[watched][i] = into;
-                    break;
-                }
-            }
-        }
-
-        // Replace last by clause_id in the reason
-        let first_variable = self.clauses[from][0].var();
-        match self.reason[first_variable] {
-            None => { /* nothing to do */ },
-            Some(r) => {
-                if r == from {
-                    self.reason[first_variable] = Some(into)
-                }
-            }
-        }
-    }
-
-    fn unlock_clause(&mut self, c_id: ClauseId) {
-        // Remove clause_id from the reason
-        let first_variable = self.clauses[c_id][0].var();
-        match self.reason[first_variable] {
-            None    => { /* nothing to do */ },
-            Some(r) => {
-                if r == c_id {
-                    self.reason[first_variable] = None
-                }
-            }
-        }
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -895,6 +855,13 @@ impl Solver {
     // ---------------------------- MISC ---------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
+    /// Tells the position of the 'root' of the problem. That is to say the position in the trail
+    /// as of where the search starts. All literals before the root() are at level 0 and cannot
+    /// be challenge since they directly follow from the problem statement.
+    #[inline]
+    pub fn root(&self) -> usize { self.forced }
+
+    #[inline]
     fn is_decision(&self, lit : Literal) -> bool {
         self.reason[lit.var()].is_none()
     }
@@ -907,7 +874,7 @@ impl Solver {
     /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
     /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
     /// the state are required to be muted.
-    ///
+    #[inline]
     fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
         if !flags[lit].is_set(Flag::IsMarked) {
             flags[lit].set(Flag::IsMarked);
@@ -915,11 +882,45 @@ impl Solver {
         }
     }
 
-    /// Tells the position of the 'root' of the problem. That is to say the position in the trail
-    /// as of where the search starts. All literals before the root() are at level 0 and cannot
-    /// be challenge since they directly follow from the problem statement.
+    fn rename_clause(&mut self, from: ClauseId, into: ClauseId) {
+        // Replace last by clause_id in the watchers lists
+        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+            let watched = self.clauses[from][i];
+
+            let nb_watchers = self.watchers[watched].len();
+            for i in 0..nb_watchers {
+                if self.watchers[watched][i] == from {
+                    self.watchers[watched][i] = into;
+                    break;
+                }
+            }
+        }
+
+        // Replace last by clause_id in the reason
+        let first_variable = self.clauses[from][0].var();
+        match self.reason[first_variable] {
+            None => { /* nothing to do */ },
+            Some(r) => {
+                if r == from {
+                    self.reason[first_variable] = Some(into)
+                }
+            }
+        }
+    }
+
     #[inline]
-    pub fn root(&self) -> usize { self.forced }
+    fn unlock_clause(&mut self, c_id: ClauseId) {
+        // Remove clause_id from the reason
+        let first_variable = self.clauses[c_id][0].var();
+        match self.reason[first_variable] {
+            None    => { /* nothing to do */ },
+            Some(r) => {
+                if r == c_id {
+                    self.reason[first_variable] = None
+                }
+            }
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------------
