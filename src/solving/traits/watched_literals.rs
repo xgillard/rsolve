@@ -3,19 +3,6 @@ use core::*;
 use super::*;
 
 // -----------------------------------------------------------------------------------------------
-/// # Activation Status
-/// This enum communicates about the fact that (re-)activating a clause may fail or lead to special
-/// cases for which action might be required.
-// -----------------------------------------------------------------------------------------------
-#[must_use]
-#[derive(Debug, PartialEq)]
-pub enum ActivationStatus {
-    FoundTwoWatchers,
-    UnitDetected(Literal),
-    ConflictDetected
-}
-
-// -----------------------------------------------------------------------------------------------
 /// # Watched Literals
 /// This trait encapsulates the Two Watched Literal Scheme proposed in [ZS00, MMZ+01] to speed up
 /// the boolean constraint propagation.
@@ -60,10 +47,15 @@ pub trait WatchedLiterals {
     /// Activate the given clause. That is to say, it finds two literals to be watched by the clause
     /// and starts watching them.
     ///
+    /// In some particular cases, it takes some additional actions. Namely:
+    /// - when the clause is detected to be *unit*, it asserts the literal.
+    /// - when *a conflict* is detected, it invalidates the state of the solver (it is marked unsat
+    ///   for ever).
+    ///
     /// # Note
     /// It is assumed that clauses of size 0 and 1 are out of the way and we're certain to be left
     /// only with clauses having at least two literals.
-    fn activate_clause(&mut self, c_id : ClauseId) -> ActivationStatus;
+    fn activate_clause(&mut self, c_id : ClauseId);
 
     /// Deactivate the given clause. That is to say, it removes all watches for the given clause.
     ///

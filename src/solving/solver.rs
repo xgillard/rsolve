@@ -877,6 +877,10 @@ impl ClauseDatabase for Solver {
         // -- Activate the clause --
         // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
         // at least two literals
+        // -- Note -----------------
+        // Using `self.activate(c_id)` would have been correct too. However, I chose not to opt for
+        // that solution since it involves quite a severe performance penalty.
+        // -------------------------
         let wl1 = clause[0];
         let wl2 = clause[1];
 
@@ -992,10 +996,15 @@ impl WatchedLiterals for Solver {
     /// Activate the given clause. That is to say, it finds two literals to be watched by the clause
     /// and starts watching them.
     ///
+    /// In some particular cases, it takes some additional actions. Namely:
+    /// - when the clause is detected to be *unit*, it asserts the literal.
+    /// - when *a conflict* is detected, it invalidates the state of the solver (it is marked unsat
+    ///   for ever).
+    ///
     /// # Note
     /// It is assumed that clauses of size 0 and 1 are out of the way and we're certain to be left
     /// only with clauses having at least two literals.
-    fn activate_clause(&mut self, c_id : ClauseId) -> ActivationStatus {
+    fn activate_clause(&mut self, c_id : ClauseId) {
         let mut cnt = 0;
 
         let mut wl1 = self.clauses[c_id][0];
@@ -1027,7 +1036,14 @@ impl WatchedLiterals for Solver {
 
         // we couldn't find any literal that can possibly be watched
         if cnt == 0 {
-            return ActivationStatus::ConflictDetected;
+            self.is_unsat = true;
+            return;
+        }
+
+        if cnt == 1 {
+            // the clause is unit (under assignment) so we need to assert wl1.
+            // this is going to work since we know that wl1 is watchable
+            self.is_unsat |= self.assign(wl1, Some(c_id)).is_err();
         }
 
         // anyhow, remember that we must watch wl1 and wl2
@@ -1036,14 +1052,6 @@ impl WatchedLiterals for Solver {
 
         self.watchers[wl1].push(c_id);
         self.watchers[wl2].push(c_id);
-
-        if cnt == 1 {
-            // the clause is unit (under assignment) so we need to assert wl1.
-            // this is going to work since we know that wl1 is watchable
-            return ActivationStatus::UnitDetected(wl1);
-        } else {
-            return ActivationStatus::FoundTwoWatchers;
-        }
     }
 
     /// Deactivate the given clause. That is to say, it removes all watches for the given clause.
@@ -1249,26 +1257,31 @@ mod test_watched_literals {
     }
 
     #[test]
-    fn activate_should_tell_if_it_failed_to_find_any_literal_to_watch() {
+    fn activate_should_force_unsat_if_it_failed_to_find_any_literal_to_watch() {
         let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::False);
-        tested.set_value(lit(-2), Bool::False);
 
         let clause = Clause::new(vec![lit(-1), lit(-2)], false);
         tested.add_clause(clause);
+        tested.deactivate_clause(0);
 
-        assert_eq!(ActivationStatus::ConflictDetected, tested.activate_clause(0));
+        tested.set_value(lit(-1), Bool::False);
+        tested.set_value(lit(-2), Bool::False);
+
+        assert!(!tested.is_unsat);
+        tested.activate_clause(0);
+        assert!(tested.is_unsat);
     }
 
     #[test]
     fn activate_should_not_add_watches_if_wl_cant_be_found() {
         let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::False);
-        tested.set_value(lit(-2), Bool::False);
 
         let clause = Clause::new(vec![lit(-1), lit(-2)], false);
         tested.add_clause(clause);
         tested.deactivate_clause(0);
+
+        tested.set_value(lit(-1), Bool::False);
+        tested.set_value(lit(-2), Bool::False);
 
         assert_eq!(tested.watchers[lit(-1)], &[ ]);
         assert_eq!(tested.watchers[lit(-2)], &[ ]);
@@ -1280,27 +1293,35 @@ mod test_watched_literals {
     }
 
     #[test]
-    fn activate_should_tell_if_it_could_only_find_one_literal_to_watch_wl_is_true() {
+    fn activate_should_assert_if_it_could_only_find_one_literal_to_watch_wl_is_true() {
         let mut tested= Solver::new(8);
+
+        let clause = Clause::new(vec![lit(-1), lit(-2)], false);
+        tested.add_clause(clause);
+        tested.deactivate_clause(0);
+
         tested.set_value(lit(-1), Bool::False);
         tested.set_value(lit(-2), Bool::True);
 
-        let clause = Clause::new(vec![lit(-1), lit(-2)], false);
-        tested.add_clause(clause);
+        tested.activate_clause(0);
 
-        assert_eq!(ActivationStatus::UnitDetected(lit(-2)), tested.activate_clause(0));
+        assert!(tested.is_true(lit(-2)));
     }
 
     #[test]
-    fn activate_should_tell_if_it_could_only_find_one_literal_to_watch_wl_is_undef() {
+    fn activate_should_assert_if_it_could_only_find_one_literal_to_watch_wl_is_undef() {
         let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::False);
-        tested.set_value(lit(-2), Bool::Undef);
 
         let clause = Clause::new(vec![lit(-1), lit(-2)], false);
         tested.add_clause(clause);
+        tested.deactivate_clause(0);
 
-        assert_eq!(ActivationStatus::UnitDetected(lit(-2)), tested.activate_clause(0));
+        tested.set_value(lit(-1), Bool::False);
+        tested.set_value(lit(-2), Bool::Undef);
+
+        tested.activate_clause(0);
+
+        assert!(tested.is_true(lit(-2)));
     }
 
     #[test]
@@ -1322,39 +1343,6 @@ mod test_watched_literals {
         assert_eq!(tested.watchers[lit(-2)], &[0]);
     }
 
-    #[test]
-    fn activate_should_tell_if_two_wl_could_be_found_both_undef() {
-        let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::Undef);
-        tested.set_value(lit(-2), Bool::Undef);
-
-        let clause = Clause::new(vec![lit(-1), lit(-2)], false);
-        tested.add_clause(clause);
-
-        assert_eq!(ActivationStatus::FoundTwoWatchers, tested.activate_clause(0));
-    }
-    #[test]
-    fn activate_should_tell_if_two_wl_could_be_found_both_true() {
-        let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::Undef);
-        tested.set_value(lit(-2), Bool::Undef);
-
-        let clause = Clause::new(vec![lit(-1), lit(-2)], false);
-        tested.add_clause(clause);
-
-        assert_eq!(ActivationStatus::FoundTwoWatchers, tested.activate_clause(0));
-    }
-    #[test]
-    fn activate_should_tell_if_two_wl_could_be_found_both_one_undef_one_true() {
-        let mut tested= Solver::new(8);
-        tested.set_value(lit(-1), Bool::True);
-        tested.set_value(lit(-2), Bool::Undef);
-
-        let clause = Clause::new(vec![lit(-1), lit(-2)], false);
-        tested.add_clause(clause);
-
-        assert_eq!(ActivationStatus::FoundTwoWatchers, tested.activate_clause(0));
-    }
     #[test]
     fn activate_should_add_two_watchers() {
         let mut tested= Solver::new(8);
