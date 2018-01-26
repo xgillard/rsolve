@@ -937,6 +937,7 @@ impl ClauseDatabase for Solver {
         self.clauses.swap_remove(clause_id);
     }
 }
+
 // -----------------------------------------------------------------------------------------------
 /// # Unit Tests
 // -----------------------------------------------------------------------------------------------
@@ -1061,9 +1062,9 @@ mod tests {
     fn decide_must_yield_all_unassigned_values(){
         let mut solver = SOLVER::new(3);
 
-        solver.phase_saving.set_value(lit(1), Bool::True);
-        solver.phase_saving.set_value(lit(2), Bool::True);
-        solver.phase_saving.set_value(lit(3), Bool::True);
+        solver.phase_saving.set(1, true);
+        solver.phase_saving.set(2, true);
+        solver.phase_saving.set(3, true);
 
         let mut decision = solver.decide();
         assert!(decision.is_some());
@@ -1111,9 +1112,9 @@ mod tests {
     fn decide_must_return_values_in_heuristic_order(){
         let mut solver = SOLVER::new(3);
 
-        solver.phase_saving.set_value(lit(1), Bool::True);
-        solver.phase_saving.set_value(lit(2), Bool::True);
-        solver.phase_saving.set_value(lit(3), Bool::True);
+        solver.phase_saving.set(1, true);
+        solver.phase_saving.set(2, true);
+        solver.phase_saving.set(3, true);
 
         solver.var_order.bump(var(1));
         solver.var_order.decay();
@@ -1146,9 +1147,9 @@ mod tests {
         solver.var_order.decay();
         solver.var_order.bump(var(3));
 
-        solver.phase_saving.set_value(lit(1), Bool::False);
-        solver.phase_saving.set_value(lit(2), Bool::True);
-        solver.phase_saving.set_value(lit(3), Bool::Undef);
+        solver.phase_saving.set(1, false);
+        solver.phase_saving.set(2, true  );
+        solver.phase_saving.set(3, false );
 
         let mut decision = solver.decide();
         assert!(decision.is_some());
@@ -1780,15 +1781,14 @@ mod tests {
 
         for i in 1..6 {
             let lit = lit(i);
+            assert!(!solver.phase_saving.contains(lit.var().into() ));
             assert!(solver.assign(lit, None).is_ok());
-            assert_eq!(Bool::Undef, solver.phase_saving.get_value(lit));
         }
 
         solver.rollback(3);
         for i in (4..6).rev() {
             let l = lit(i);
-            assert_eq!(Bool::True , solver.phase_saving.get_value(l));
-            assert_eq!(Bool::False, solver.phase_saving.get_value(!l));
+            assert!(solver.phase_saving.contains(l.var().into() ));
         }
     }
 
