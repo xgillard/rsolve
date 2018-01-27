@@ -296,14 +296,19 @@ impl ConflictAnalysis for Solver {
 
         match self.add_learned_clause(learned) {
             Err(()) => Err(()),
-            Ok (c) if c == CLAUSE_ELIDED  => Ok (()),
-            Ok (c_id) => {
-                let asserting_lit = self.clauses[ c_id ][0];
+            Ok(c) if c == CLAUSE_ELIDED => Ok(()),
+            Ok(c_id) => {
+                let asserting_lit = self.clauses[c_id][0];
                 return self.assign(asserting_lit, Some(c_id));
             }
         }
     }
+}
 
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the conflict analysis
+// -------------------------------------------------------------------------------------------
+impl Solver {
     /// This method builds a and returns minimized conflict clause by walking the marked literals
     /// to compute a cut.
     ///
@@ -505,18 +510,26 @@ impl ClauseDeletion for Solver {
         self.nb_learned > self.max_learned
     }
 
-    /// This function tells whether or not a clause can be forgotten by the solver.
-    /// Normally all clauses that are learned and not being used at the moment (not locked) can
-    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
-    /// knowledge and keeps all the the clauses that are 'good enough'.
-    fn can_forget(&self, clause_id: ClauseId) -> bool {
-        let ref clause = self.clauses[clause_id];
+    /// Called whenever the clause propagates a literal.
+    ///
+    /// This function tries to dynamically improve the LBD of the bumped clause. If that turns out
+    /// to be a success (new, smaller LBD found) then the clause is protected against deletion for
+    /// one round.
+    #[inline]
+    fn clause_bump(&mut self, c_id: ClauseId) {
+        let old_lbd = self.clauses[c_id].get_lbd();
 
-        clause.is_learned
-            && clause.get_lbd() > 2
-            && clause.len() > 2
-            && !clause.is_lbd_recently_updated()
-            && !self.is_locked(clause_id)
+        // If it is already a glue clause, there is no point in trying to improve LBD any further
+        if old_lbd <= 2 {
+            return;
+        }
+
+        let lbd = self.literal_block_distance(c_id);
+        if lbd < old_lbd {
+            let clause = &mut self.clauses[c_id];
+            clause.set_lbd(lbd);
+            clause.set_lbd_recently_updated(true);
+        }
     }
 
     /// Forgets some of the less useful clauses to speed up the propagation process.
@@ -553,6 +566,20 @@ impl ClauseDeletion for Solver {
 // Private, Helper functions for the DB reduction
 // -------------------------------------------------------------------------------------------
 impl Solver {
+    /// This function tells whether or not a clause can be forgotten by the solver.
+    /// Normally all clauses that are learned and not being used at the moment (not locked) can
+    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
+    /// knowledge and keeps all the the clauses that are 'good enough'.
+    fn can_forget(&self, clause_id: ClauseId) -> bool {
+        let ref clause = self.clauses[clause_id];
+
+        clause.is_learned
+            && clause.get_lbd() > 2
+            && clause.len() > 2
+            && !clause.is_lbd_recently_updated()
+            && !self.is_locked(clause_id)
+    }
+
     /// Computes the literal block distance (LBD) of some clause.
     fn literal_block_distance(&self, clause_id: ClauseId) -> u32 {
         // Shortcut: Having an LBD of two means it is a glue clause. It will never be deleted so
@@ -582,7 +609,7 @@ impl Solver {
 // -------------------------------------------------------------------------------------------//
 impl Backtracking for Solver {
     /// Rolls back the search up to the given position.
-    fn rollback(&mut self, until : usize) {
+    fn rollback(&mut self, until: usize) {
         // Unravel the portion of the trail with literal that really should be rolled back
         let len = self.prop_queue.len();
         for i in (until..len).rev() {
@@ -602,7 +629,12 @@ impl Backtracking for Solver {
         self.propagated = until;
         self.prop_queue.resize(until, lit(iint::max_value()));
     }
+}
 
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the Backtracking
+// -------------------------------------------------------------------------------------------
+impl Solver {
     /// Undo all state changes that have been done for some given literal
     fn undo(&mut self, lit: Literal) {
         if self.is_decision(lit) {
@@ -1021,17 +1053,11 @@ impl Propagation for Solver {
                 // Level can only be set now that the nb_decisions has been updated if need be
                 self.level [lit.var()] = self.nb_decisions;
 
-                // Glucose-like database management: dynamically improve the LBD
-                // if we can show that it is improved.
-                if reason.is_some() {
-                    let reason_id = reason.unwrap();
-                    if reason_id != CLAUSE_ELIDED {
-                        let lbd = self.literal_block_distance(reason_id);
-
-                        let cause = &mut self.clauses[reason_id];
-                        if lbd < cause.get_lbd() {
-                            cause.set_lbd(lbd);
-                            cause.set_lbd_recently_updated(true);
+                match reason {
+                    None      => {/* it cant be bumped */},
+                    Some(c_id)=> {
+                        if c_id != CLAUSE_ELIDED {
+                            self.clause_bump(c_id);
                         }
                     }
                 }

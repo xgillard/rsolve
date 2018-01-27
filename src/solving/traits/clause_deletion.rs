@@ -13,12 +13,9 @@ pub trait ClauseDeletion {
     /// of the less useful clauses
     fn should_reduce_db(&self) -> bool;
 
-    /// This function tells whether or not a clause can be forgotten by the solver.
-    /// Normally all clauses that are learned and not being used at the moment (not locked) can
-    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
-    /// knowledge and keeps all the the clauses that are 'good enough'.
-    fn can_forget(&self, clause_id: ClauseId) -> bool;
-
     /// Forgets some of the less useful clauses to speed up the propagation process.
     fn reduce_db(&mut self);
+
+    /// Called whenever the clause propagates a literal.
+    fn clause_bump(&mut self, c_id: ClauseId);
 }
