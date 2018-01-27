@@ -244,56 +244,6 @@ impl Solver {
     // ---------------------------- CLAUSE DATABASE REDUCTION ------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-    /// Tells whether or not it is desireable to reduce the size of the database and forget some
-    /// of the less useful clauses
-    #[inline]
-    fn should_reduce_db(&self) -> bool {
-        self.nb_learned > self.max_learned
-    }
-
-    /// This function tells whether or not a clause can be forgotten by the solver.
-    /// Normally all clauses that are learned and not being used at the moment (not locked) can
-    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
-    /// knowledge and keeps all the the clauses that are 'good enough'.
-    fn can_forget(&self, clause_id: ClauseId) -> bool {
-        let ref clause = self.clauses[clause_id];
-
-        clause.is_learned
-            && clause.get_lbd() > 2
-            && clause.len() > 2
-            && !clause.is_lbd_recently_updated()
-            && !self.is_locked(clause_id)
-    }
-
-    /// Forgets some of the less useful clauses to speed up the propagation process.
-    fn reduce_db(&mut self) {
-        // sort the clauses according to their heuristic quality score (LBD)
-        let nb_clauses = self.clauses.len();
-        let mut remove_agenda: Vec<ClauseId> = (0..nb_clauses)
-            .filter(|id| self.can_forget(*id))
-            .collect();
-
-        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_lbd());
-        remove_agenda.reverse();
-
-        // reduces the size of the database by removing half of the worst clauses.
-        // It should be noted though that unary and binary clauses are *never* removed
-        // and that 'locked' clauses (those who are reason for some assignment) are kept as well
-        let limit = self.nb_learned / 2;
-        remove_agenda.truncate(limit);
-
-        // Actually proceed to the clause deletion
-        self.remove_all(&mut remove_agenda);
-
-        // Remove 'protection' on all the clauses
-        for c in self.clauses.iter_mut() {
-            c.set_lbd_recently_updated(false);
-        }
-
-        // allow the solver to learn somewhat more clauses before we reduce the database again
-        self.max_learned = (self.max_learned * 3) / 2;
-    }
-
     /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
     /// in the current assignment
     fn is_locked(&self, clause_id: ClauseId) -> bool {
@@ -695,6 +645,58 @@ impl Restart for Solver {
         self.restart_strat.set_next_limit();
         self.nb_restarts += 1;
         self.nb_conflicts_since_restart = 0;
+    }
+}
+
+impl ClauseDeletion for Solver {
+    /// Tells whether or not it is desireable to reduce the size of the database and forget some
+    /// of the less useful clauses
+    #[inline]
+    fn should_reduce_db(&self) -> bool {
+        self.nb_learned > self.max_learned
+    }
+
+    /// This function tells whether or not a clause can be forgotten by the solver.
+    /// Normally all clauses that are learned and not being used at the moment (not locked) can
+    /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
+    /// knowledge and keeps all the the clauses that are 'good enough'.
+    fn can_forget(&self, clause_id: ClauseId) -> bool {
+        let ref clause = self.clauses[clause_id];
+
+        clause.is_learned
+            && clause.get_lbd() > 2
+            && clause.len() > 2
+            && !clause.is_lbd_recently_updated()
+            && !self.is_locked(clause_id)
+    }
+
+    /// Forgets some of the less useful clauses to speed up the propagation process.
+    fn reduce_db(&mut self) {
+        // sort the clauses according to their heuristic quality score (LBD)
+        let nb_clauses = self.clauses.len();
+        let mut remove_agenda: Vec<ClauseId> = (0..nb_clauses)
+            .filter(|id| self.can_forget(*id))
+            .collect();
+
+        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_lbd());
+        remove_agenda.reverse();
+
+        // reduces the size of the database by removing half of the worst clauses.
+        // It should be noted though that unary and binary clauses are *never* removed
+        // and that 'locked' clauses (those who are reason for some assignment) are kept as well
+        let limit = self.nb_learned / 2;
+        remove_agenda.truncate(limit);
+
+        // Actually proceed to the clause deletion
+        self.remove_all(&mut remove_agenda);
+
+        // Remove 'protection' on all the clauses
+        for c in self.clauses.iter_mut() {
+            c.set_lbd_recently_updated(false);
+        }
+
+        // allow the solver to learn somewhat more clauses before we reduce the database again
+        self.max_learned = (self.max_learned * 3) / 2;
     }
 }
 

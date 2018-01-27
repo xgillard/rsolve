@@ -2,7 +2,7 @@ use core::*;
 use super::*;
 
 // -----------------------------------------------------------------------------------------------
-/// # Propagator
+/// # Propagation
 /// This trait communicates the intent that object implementing this trait will perform some
 /// propagation in order to carry out inference.
 // -----------------------------------------------------------------------------------------------
