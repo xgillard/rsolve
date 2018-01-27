@@ -340,67 +340,12 @@ impl Solver {
     // ---------------------------- RESTART ------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-    /// Asks the restart strategy and tells if a complete restart of the search should be triggered
-    #[inline]
-    fn should_restart(&self) -> bool {
-        self.restart_strat.is_restart_required(self.nb_conflicts_since_restart)
-    }
-
-    /// Restarts the search to find a better path towards the solution.
-    /// The choice of when to restart is left to the implementation of the restart strategy.
-    fn restart(&mut self) {
-        let pos = self.root();
-        self.rollback(pos);
-        self.restart_strat.set_next_limit();
-        self.nb_restarts += 1;
-        self.nb_conflicts_since_restart = 0;
-    }
 
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- BACKTRACKING -------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-    /// Rolls back the search up to the given position.
-    fn rollback(&mut self, until : usize) {
-        // Unravel the portion of the trail with literal that really should be rolled back
-        let len = self.prop_queue.len();
-        for i in (until..len).rev() {
-            let lit = self.prop_queue[i];
-            self.undo(lit);
-        }
 
-        // Clear the analysis of all the other literals (those who shouldn't be cancelled but whose
-        // flags have been tampered with during the conflict clause analysis and recursive
-        // minimization)
-        for i in self.forced..until {
-            let lit = self.prop_queue[i];
-            self.flags[lit].reset();
-        }
-
-        // shrink the trail and reset the propagated cursor appropriately
-        self.propagated = until;
-        self.prop_queue.resize(until, lit(iint::max_value()));
-    }
-
-    /// Undo all state changes that have been done for some given literal
-    fn undo(&mut self, lit: Literal) {
-        if self.is_decision(lit) {
-            self.nb_decisions -= 1;
-        }
-
-        // clear all flags
-        self.flags[lit].reset();
-
-        // clear the value & reason (and save the phase for later use)
-        let v = lit.var();
-        self.phase_saving.set(v.into(), self.valuation[v] == Bool::True );
-
-        self.set_value(lit, Bool::Undef);
-        self.reason[v] = None;
-
-        // make the decision possible again
-        self.var_order.push_back(v);
-    }
 
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- MISC ---------------------------------------------------------//
@@ -732,6 +677,68 @@ impl ConflictAnalysis for Solver {
         }
 
         return backjump;
+    }
+}
+
+impl Restart for Solver {
+    /// Asks the restart strategy and tells if a complete restart of the search should be triggered
+    #[inline]
+    fn should_restart(&self) -> bool {
+        self.restart_strat.is_restart_required(self.nb_conflicts_since_restart)
+    }
+
+    /// Restarts the search to find a better path towards the solution.
+    /// The choice of when to restart is left to the implementation of the restart strategy.
+    fn restart(&mut self) {
+        let pos = self.root();
+        self.rollback(pos);
+        self.restart_strat.set_next_limit();
+        self.nb_restarts += 1;
+        self.nb_conflicts_since_restart = 0;
+    }
+}
+
+impl Backtracking for Solver {
+    /// Rolls back the search up to the given position.
+    fn rollback(&mut self, until : usize) {
+        // Unravel the portion of the trail with literal that really should be rolled back
+        let len = self.prop_queue.len();
+        for i in (until..len).rev() {
+            let lit = self.prop_queue[i];
+            self.undo(lit);
+        }
+
+        // Clear the analysis of all the other literals (those who shouldn't be cancelled but whose
+        // flags have been tampered with during the conflict clause analysis and recursive
+        // minimization)
+        for i in self.forced..until {
+            let lit = self.prop_queue[i];
+            self.flags[lit].reset();
+        }
+
+        // shrink the trail and reset the propagated cursor appropriately
+        self.propagated = until;
+        self.prop_queue.resize(until, lit(iint::max_value()));
+    }
+
+    /// Undo all state changes that have been done for some given literal
+    fn undo(&mut self, lit: Literal) {
+        if self.is_decision(lit) {
+            self.nb_decisions -= 1;
+        }
+
+        // clear all flags
+        self.flags[lit].reset();
+
+        // clear the value & reason (and save the phase for later use)
+        let v = lit.var();
+        self.phase_saving.set(v.into(), self.valuation[v] == Bool::True );
+
+        self.set_value(lit, Bool::Undef);
+        self.reason[v] = None;
+
+        // make the decision possible again
+        self.var_order.push_back(v);
     }
 }
 
