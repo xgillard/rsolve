@@ -205,74 +205,6 @@ impl Solver {
     // ---------------------------- PROPAGATION --------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-    /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
-    /// in the Valuation and it enqueues the negation of the literal on the propagation queue
-    ///
-    /// # Note
-    /// We always push the *negation* of the assigned literal on the stack
-    fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
-        match self.get_value(lit) {
-            Bool::True  => Ok(()),
-            Bool::False => Err(()),
-            Bool::Undef => {
-                self.set_value(lit, Bool::True);
-                self.reason[lit.var()] = reason;
-                self.prop_queue.push(!lit);
-
-
-                // if its a decision, make sure to take that into account
-                if reason.is_none() {
-                    self.nb_decisions += 1;
-                }
-
-                // if the solver is at root level, then assignment must follow from the problem
-                if self.nb_decisions == 0 {
-                    self.flags[lit].set(Flag::IsForced);
-                    self.forced += 1;
-                }
-
-                // Level can only be set now that the nb_decisions has been updated if need be
-                self.level [lit.var()] = self.nb_decisions;
-
-                // Glucose-like database management: dynamically improve the LBD
-                // if we can show that it is improved.
-                if reason.is_some() {
-                    let reason_id = reason.unwrap();
-                    if reason_id != CLAUSE_ELIDED {
-                        let lbd = self.literal_block_distance(reason_id);
-
-                        let cause = &mut self.clauses[reason_id];
-                        if lbd < cause.get_lbd() {
-                            cause.set_lbd(lbd);
-                            cause.set_lbd_recently_updated(true);
-                        }
-                    }
-                }
-
-                Ok(())
-            }
-        }
-    }
-
-	/// This method propagates the information about all the literals that have been
-	/// enqueued. It returns an optional conflicting clause whenever conflict is detected
-	/// Otherwise, None is returned.
-    fn propagate(&mut self) -> Option<Conflict> {
-        loop {
-            if self.propagated >= self.prop_queue.len() { break }
-
-            let nb_propagated = self.propagated;
-            let literal = self.prop_queue[nb_propagated];
-
-            let conflict = self.propagate_literal(literal);
-            if conflict.is_some() {
-                return conflict;
-            }
-
-            self.propagated += 1;
-        }
-        return None;
-    }
 
 	/// Notifies all the watchers of `lit` that `lit` has been falsified.
 	/// This method optionally returns a conflicting clause if one is found.
@@ -306,208 +238,6 @@ impl Solver {
         }
 
         return None;
-    }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- CONFLICT RESOLUTION ------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-    /// This method analyzes the conflict to derive a new clause, add it to the database and
-    /// rolls back the assignment stack until the moment where the solver has reached a stable
-    /// and useful state (from which progress can be made).
-    ///
-    /// # Note
-    /// The conflict clause which is learned is immediately minimized with the so called recursive
-    /// minimization technique. For further reference, please refer to
-    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
-    ///
-    /// # Return Value
-    /// Ok  whenever the conflict could safely be resolved,
-    /// Err when the conflict could not be resolved (that is to say, when the problem is
-    ///     proven to be UNSAT
-    fn resolve_conflict(&mut self, conflict: ClauseId) -> Result<(), ()> {
-        let uip = self.find_first_uip(conflict);
-        let learned = self.build_conflict_clause(uip);
-        let backjump = self.find_backjump_point(uip);
-
-        self.rollback(backjump);
-
-        match self.add_learned_clause(learned) {
-            Err(()) => Err(()),
-            Ok (c) if c == CLAUSE_ELIDED  => Ok (()),
-            Ok (c_id) => {
-                let asserting_lit = self.clauses[ c_id ][0];
-                return self.assign(asserting_lit, Some(c_id));
-            }
-        }
-    }
-
-	/// This method builds a and returns minimized conflict clause by walking the marked literals
-    /// to compute a cut.
-    ///
-	/// `uip` is the position of the 1st uip
-    fn build_conflict_clause(&mut self, uip: usize) -> Vec<Literal> {
-        let mut learned = Vec::new();
-
-        for cusor in (self.forced..uip+1).rev() {
-            let lit = self.prop_queue[cusor];
-
-            if self.flags[lit].is_set(Flag::IsMarked) && !self.is_implied(lit) {
-                learned.push(lit);
-                self.flags[lit].set(Flag::IsInConflictClause);
-            }
-        }
-
-        return learned;
-    }
-
-	/// Finds the position (in `prop_queue`) of the first unique implication point
-	/// implying the conflict detected because of `conflicting`. Concretely, this
-	/// is implemented with a backwards BFS traversal of the implication graph and
-	/// each step is an inverse resolution.
-	///
-	/// `conflicting` is the clause which was detected to be the reason of the conflict
-	/// This function returns the position of the first uip
-    fn find_first_uip(&mut self, conflict: ClauseId) -> usize {
-
-        { // mark all literals in the conflict clause
-            let ref mut conflicting = self.clauses[conflict];
-            for l in conflicting.iter() {
-                Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
-            }
-        }
-
-        // backwards BFS rooted at the conflict to identify uip (and mark its cause)
-        let mut cursor = self.prop_queue.len();
-        loop {
-            cursor -= 1;
-
-            // Whenever we've analyzed all the literals that are not *forced* by the constraints,
-            // we can stop.
-            if cursor < self.forced { break }
-
-            // Whenever we've found an UIP, it is bound to be the first one. Hence, we can stop
-            if self.is_uip(cursor){ break }
-
-            // otherwise, we just proceed with the rest
-            let lit = self.prop_queue[cursor];
-
-            // if a literal is not marked, we don't need to care about it
-            if !self.flags[lit].is_set(Flag::IsMarked) { continue }
-
-            // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
-            // decision literal because, if it were, the is_uip() would have been true.
-            match self.reason[lit.var()] {
-                // will never happen
-                None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
-                Some(c_id) => match c_id {
-                    // will not happen either
-                    CLAUSE_ELIDED => {/* Ignore */},
-                    // will always happen
-                    reason_id => {
-                        let ref mut cause = self.clauses[reason_id];
-                        for l in cause.iter().skip(1) {
-                            Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
-                        }
-                    }
-                }
-            }
-        }
-
-        self.var_order.decay();
-
-        return cursor;
-    }
-
-    /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
-    /// implication point (UIP). A position is an uip if:
-    /// - it is a decision.
-    /// - it is the last marked literal before a decision.
-    fn is_uip(&self, position: usize) -> bool {
-        let literal = self.prop_queue[position];
-
-        if self.is_decision(literal) {
-            return true;
-        }
-
-        if !self.flags[literal].is_set(Flag::IsMarked) {
-            return false;
-        }
-
-        for iter in (self.forced..position).rev() {
-            let iter_literal= self.prop_queue[iter];
-
-            if self.flags[iter_literal].is_set(Flag::IsMarked) {
-                return false;
-            }
-            if self.is_decision(iter_literal) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// Returns true iff recursive analysis showed `lit` to be implied by other literals
-    ///
-    /// # Bibliographic reference
-    /// For further reference on recursive clause minimization, please refer to
-    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
-    ///
-    fn is_implied(&mut self, lit: Literal) -> bool {
-        // If it's already been analyzed, reuse that info
-        let flags_lit = self.flags[lit];
-        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
-            return flags_lit.is_set(Flag::IsImplied);
-        }
-
-        match &self.reason[lit.var()] {
-            // If it's a decision, there's no way it is implied
-            &None       => return false,
-            &Some(c_id) => match c_id {
-                // will not happen either
-                CLAUSE_ELIDED => { return true; },
-                // will always happen
-                reason_id    => {
-                    let c_len = self.clauses[reason_id].len();
-                    for i in 1..c_len {
-                        let l = self.clauses[reason_id][i];
-                        if !self.flags[l].is_set(Flag::IsMarked) && !self.is_implied(l) {
-                            self.flags[lit].set(Flag::IsNotImplied);
-                            return false;
-                        }
-                    }
-                    self.flags[lit].set(Flag::IsImplied);
-                    return true;
-                }
-            }
-        }
-    }
-
-    /// Returns the position (index in `prop_queue`) until which the solver should backtrack
-    /// to continue searching while incorporating the knowledge gained with learned clause
-    /// implying `uip`.
-    ///
-    /// The returned position corresponds to the index of the *earliest* decision point which
-    /// makes the learned clause unit.
-    fn find_backjump_point(&self, uip: usize) -> usize {
-        let mut count_used    = 0;
-        let mut backjump = uip;
-
-        // iterating over the trail from back to front
-        for cursor in (self.forced..uip+1).rev() {
-            let lit = self.prop_queue[cursor];
-
-            if self.flags[lit].is_set(Flag::IsInConflictClause) {
-                count_used += 1;
-            }
-
-            if count_used == 1 && self.is_decision(lit) {
-                backjump = cursor;
-            }
-        }
-
-        return backjump;
     }
 
     // -------------------------------------------------------------------------------------------//
@@ -805,6 +535,206 @@ impl Solver {
 // ---------------------------- IMPLEMENTATION OF THE SOLVER TRAITS --------------------------//
 // -------------------------------------------------------------------------------------------//
 
+impl ConflictAnalysis for Solver {
+    /// This method analyzes the conflict to derive a new clause, add it to the database and
+    /// rolls back the assignment stack until the moment where the solver has reached a stable
+    /// and useful state (from which progress can be made).
+    ///
+    /// # Note
+    /// The conflict clause which is learned is immediately minimized with the so called recursive
+    /// minimization technique. For further reference, please refer to
+    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
+    ///
+    /// # Return Value
+    /// Ok  whenever the conflict could safely be resolved,
+    /// Err when the conflict could not be resolved (that is to say, when the problem is proven
+    ///     to be UNSAT
+    fn resolve_conflict(&mut self, conflict: ClauseId) -> Result<(), ()> {
+        let uip = self.find_first_uip(conflict);
+        let learned = self.build_conflict_clause(uip);
+        let backjump = self.find_backjump_point(uip);
+
+        self.rollback(backjump);
+
+        match self.add_learned_clause(learned) {
+            Err(()) => Err(()),
+            Ok (c) if c == CLAUSE_ELIDED  => Ok (()),
+            Ok (c_id) => {
+                let asserting_lit = self.clauses[ c_id ][0];
+                return self.assign(asserting_lit, Some(c_id));
+            }
+        }
+    }
+
+    /// This method builds a and returns minimized conflict clause by walking the marked literals
+    /// to compute a cut.
+    ///
+    /// `uip` is the position of the 1st uip
+    fn build_conflict_clause(&mut self, uip: usize) -> Vec<Literal> {
+        let mut learned = Vec::new();
+
+        for cusor in (self.forced..uip+1).rev() {
+            let lit = self.prop_queue[cusor];
+
+            if self.flags[lit].is_set(Flag::IsMarked) && !self.is_implied(lit) {
+                learned.push(lit);
+                self.flags[lit].set(Flag::IsInConflictClause);
+            }
+        }
+
+        return learned;
+    }
+
+    /// Finds the position (in `prop_queue`) of the first unique implication point
+    /// implying the conflict detected because of `conflicting`. Concretely, this
+    /// is implemented with a backwards BFS traversal of the implication graph and
+    /// each step is an inverse resolution.
+    ///
+    /// `conflicting` is the clause which was detected to be the reason of the conflict
+    /// This function returns the position of the first uip
+    fn find_first_uip(&mut self, conflict: ClauseId) -> usize {
+
+        { // mark all literals in the conflict clause
+            let ref mut conflicting = self.clauses[conflict];
+            for l in conflicting.iter() {
+                Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
+            }
+        }
+
+        // backwards BFS rooted at the conflict to identify uip (and mark its cause)
+        let mut cursor = self.prop_queue.len();
+        loop {
+            cursor -= 1;
+
+            // Whenever we've analyzed all the literals that are not *forced* by the constraints,
+            // we can stop.
+            if cursor < self.forced { break }
+
+            // Whenever we've found an UIP, it is bound to be the first one. Hence, we can stop
+            if self.is_uip(cursor){ break }
+
+            // otherwise, we just proceed with the rest
+            let lit = self.prop_queue[cursor];
+
+            // if a literal is not marked, we don't need to care about it
+            if !self.flags[lit].is_set(Flag::IsMarked) { continue }
+
+            // otherwise, we need to mark all the literal in its antecedent. Note, we know lit is no
+            // decision literal because, if it were, the is_uip() would have been true.
+            match self.reason[lit.var()] {
+                // will never happen
+                None => panic!("{:?} is a decision (it has no reason), but is_uip() replied false"),
+                Some(c_id) => match c_id {
+                    // will not happen either
+                    CLAUSE_ELIDED => {/* Ignore */},
+                    // will always happen
+                    reason_id => {
+                        let ref mut cause = self.clauses[reason_id];
+                        for l in cause.iter().skip(1) {
+                            Solver::mark_and_bump(*l, &mut self.flags, &mut self.var_order);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.var_order.decay();
+
+        return cursor;
+    }
+
+    /// Returns true iff the given `position` (index) in the trail `prop_queue` is an unique
+    /// implication point (UIP). A position is an uip if:
+    /// - it is a decision.
+    /// - it is the last marked literal before a decision.
+    fn is_uip(&self, position: usize) -> bool {
+        let literal = self.prop_queue[position];
+
+        if self.is_decision(literal) {
+            return true;
+        }
+
+        if !self.flags[literal].is_set(Flag::IsMarked) {
+            return false;
+        }
+
+        for iter in (self.forced..position).rev() {
+            let iter_literal= self.prop_queue[iter];
+
+            if self.flags[iter_literal].is_set(Flag::IsMarked) {
+                return false;
+            }
+            if self.is_decision(iter_literal) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Returns true iff recursive analysis showed `lit` to be implied by other literals
+    ///
+    /// # Bibliographic reference
+    /// For further reference on recursive clause minimization, please refer to
+    /// * Minimizing Learned Clauses (Sörensson, Biere -- 2009)
+    ///
+    fn is_implied(&mut self, lit: Literal) -> bool {
+        // If it's already been analyzed, reuse that info
+        let flags_lit = self.flags[lit];
+        if flags_lit.one_of(Flag::IsImplied, Flag::IsNotImplied) {
+            return flags_lit.is_set(Flag::IsImplied);
+        }
+
+        match &self.reason[lit.var()] {
+            // If it's a decision, there's no way it is implied
+            &None       => return false,
+            &Some(c_id) => match c_id {
+                // will not happen either
+                CLAUSE_ELIDED => { return true; },
+                // will always happen
+                reason_id    => {
+                    let c_len = self.clauses[reason_id].len();
+                    for i in 1..c_len {
+                        let l = self.clauses[reason_id][i];
+                        if !self.flags[l].is_set(Flag::IsMarked) && !self.is_implied(l) {
+                            self.flags[lit].set(Flag::IsNotImplied);
+                            return false;
+                        }
+                    }
+                    self.flags[lit].set(Flag::IsImplied);
+                    return true;
+                }
+            }
+        }
+    }
+
+    /// Returns the position (index in `prop_queue`) until which the solver should backtrack
+    /// to continue searching while incorporating the knowledge gained with learned clause
+    /// implying `uip`.
+    ///
+    /// The returned position corresponds to the index of the *earliest* decision point which
+    /// makes the learned clause unit.
+    fn find_backjump_point(&self, uip: usize) -> usize {
+        let mut count_used    = 0;
+        let mut backjump = uip;
+
+        // iterating over the trail from back to front
+        for cursor in (self.forced..uip+1).rev() {
+            let lit = self.prop_queue[cursor];
+
+            if self.flags[lit].is_set(Flag::IsInConflictClause) {
+                count_used += 1;
+            }
+
+            if count_used == 1 && self.is_decision(lit) {
+                backjump = cursor;
+            }
+        }
+
+        return backjump;
+    }
+}
+
 impl Valuation for Solver {
     /// Tells number of variables in the problem
     #[inline]
@@ -996,7 +926,6 @@ impl WatchedLiterals for Solver {
         return Err(other);
     }
 
-
     /// Activate the given clause. That is to say, it finds two literals to be watched by the clause
     /// and starts watching them.
     ///
@@ -1078,6 +1007,76 @@ impl WatchedLiterals for Solver {
     }
 }
 
+impl Propagation for Solver {
+    /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
+    /// in the Valuation and it enqueues the negation of the literal on the propagation queue
+    ///
+    /// # Note
+    /// We always push the *negation* of the assigned literal on the stack
+    fn assign(&mut self, lit: Literal, reason: Option<Reason>) -> Result<(), ()> {
+        match self.get_value(lit) {
+            Bool::True  => Ok(()),
+            Bool::False => Err(()),
+            Bool::Undef => {
+                self.set_value(lit, Bool::True);
+                self.reason[lit.var()] = reason;
+                self.prop_queue.push(!lit);
+
+
+                // if its a decision, make sure to take that into account
+                if reason.is_none() {
+                    self.nb_decisions += 1;
+                }
+
+                // if the solver is at root level, then assignment must follow from the problem
+                if self.nb_decisions == 0 {
+                    self.flags[lit].set(Flag::IsForced);
+                    self.forced += 1;
+                }
+
+                // Level can only be set now that the nb_decisions has been updated if need be
+                self.level [lit.var()] = self.nb_decisions;
+
+                // Glucose-like database management: dynamically improve the LBD
+                // if we can show that it is improved.
+                if reason.is_some() {
+                    let reason_id = reason.unwrap();
+                    if reason_id != CLAUSE_ELIDED {
+                        let lbd = self.literal_block_distance(reason_id);
+
+                        let cause = &mut self.clauses[reason_id];
+                        if lbd < cause.get_lbd() {
+                            cause.set_lbd(lbd);
+                            cause.set_lbd_recently_updated(true);
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+        }
+    }
+
+    /// This method propagates the information about all the literals that have been
+    /// enqueued. It returns an optional conflicting clause whenever conflict is detected
+    /// Otherwise, None is returned.
+    fn propagate(&mut self) -> Option<Conflict> {
+        loop {
+            if self.propagated >= self.prop_queue.len() { break }
+
+            let nb_propagated = self.propagated;
+            let literal = self.prop_queue[nb_propagated];
+
+            let conflict = self.propagate_literal(literal);
+            if conflict.is_some() {
+                return conflict;
+            }
+
+            self.propagated += 1;
+        }
+        return None;
+    }
+}
 
 // -----------------------------------------------------------------------------------------------
 /// # Unit Tests
