@@ -94,42 +94,42 @@ impl Solver {
     pub fn new(nb_vars: usize) -> Solver {
         let mut solver = Solver {
             drat: false,
-            nb_decisions : 0,
-            nb_restarts  : 0,
+            nb_decisions: 0,
+            nb_restarts: 0,
             nb_conflicts_since_restart: 0,
-            nb_conflicts : 0,
-            nb_learned   : 0,
+            nb_conflicts: 0,
+            nb_learned: 0,
 
-            valuation    : VarIdxVec::from(vec![Bool::Undef; nb_vars]),
-            clauses      : vec![],
-            is_unsat     : false,
+            valuation: VarIdxVec::from(vec![Bool::Undef; nb_vars]),
+            clauses: vec![],
+            is_unsat: false,
 
-            var_order    : VSIDS::new(nb_vars),
-            phase_saving : FixedBitSet::with_capacity(1+nb_vars),
-            max_learned  : 1000,
+            var_order: VSIDS::new(nb_vars),
+            phase_saving: FixedBitSet::with_capacity(1 + nb_vars),
+            max_learned: 1000,
             restart_strat: Luby::new(100),
-            level        : VarIdxVec::from(vec![0; nb_vars]),
+            level: VarIdxVec::from(vec![0; nb_vars]),
 
-            watchers     : LitIdxVec::with_capacity(nb_vars),
-            prop_queue   : Vec::with_capacity(nb_vars),
-            forced       : 0,
-            propagated   : 0,
+            watchers: LitIdxVec::with_capacity(nb_vars),
+            prop_queue: Vec::with_capacity(nb_vars),
+            forced: 0,
+            propagated: 0,
 
-            reason       : VarIdxVec::with_capacity(nb_vars),
-            flags        : LitIdxVec::with_capacity(nb_vars)
+            reason: VarIdxVec::with_capacity(nb_vars),
+            flags: LitIdxVec::with_capacity(nb_vars)
         };
 
         // initialize vectors
         for _ in 0..nb_vars {
             solver.watchers.push_values(vec![], vec![]);
-            solver.flags   .push_values(Flags::new(), Flags::new());
-            solver.reason  .push(None);
+            solver.flags.push_values(Flags::new(), Flags::new());
+            solver.reason.push(None);
         }
 
         // reclaim wastefully overallocated memory
         solver.watchers.shrink_to_fit();
-        solver.flags   .shrink_to_fit();
-        solver.reason  .shrink_to_fit();
+        solver.flags.shrink_to_fit();
+        solver.reason.shrink_to_fit();
 
         return solver;
     }
@@ -138,7 +138,7 @@ impl Solver {
     // ---------------------------- SEARCH -------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
 
-	/// This is the core method of the solver, it determines the satisfiability of the
+    /// This is the core method of the solver, it determines the satisfiability of the
 	/// problem through a CDCL based solving.
 	///
 	/// # Return Value
@@ -171,7 +171,7 @@ impl Solver {
                 },
                 None => {
                     match self.decide() {
-                        None      => return true,
+                        None => return true,
                         Some(lit) => self.assign(lit, None).ok()
                     };
                 }
@@ -184,13 +184,12 @@ impl Solver {
     /// Whenever all variables have been assigned, this method returns None in order to mean
     /// that no literal is available for branching.
     fn decide(&mut self) -> Option<Literal> {
-
         while !self.var_order.is_empty() {
             let variable = self.var_order.pop_top();
             let positive = Literal::from_var(variable, Sign::Positive);
 
             if self.is_undef(positive) {
-                if self.phase_saving.contains(variable.into() ) {
+                if self.phase_saving.contains(variable.into()) {
                     return Some(positive);
                 } else {
                     return Some(!positive);
@@ -200,102 +199,6 @@ impl Solver {
 
         return None;
     }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- PROPAGATION --------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-
-	/// Notifies all the watchers of `lit` that `lit` has been falsified.
-	/// This method optionally returns a conflicting clause if one is found.
-    fn propagate_literal(&mut self, lit : Literal) -> Option<Conflict> {
-        // we loop backwards to avoid messing up with the items that are appended to the list while
-        // iterating over it. Logically, the two sets should be separated (but merged after the fn).
-        // This iterating scheme achieves that goal.
-        for i in (0..self.watchers[lit].len()).rev() {
-            let watcher = self.watchers[lit][i];
-            self.watchers[lit].swap_remove(i);
-
-            let new_literal_found = self.find_new_literal(watcher, lit);
-            match new_literal_found {
-                Ok (l) => {
-                    // l was found, its ok. We only need to start watching it
-                    self.watchers[l].push(watcher);
-                },
-                Err(l) => {
-                    // No result could be found, so we need to keep watching `lit`
-                    self.watchers[lit].push(watcher);
-                    // In the meantime we also need to assign `l`, otherwise the whole
-                    // clause is going to be unsat
-                    match self.assign(l, Some(watcher)) {
-                        // Assignment went on well, we're done
-                        Ok(()) => { },
-                        // Conflict detected, return it !
-                        Err(())=> return Some(watcher)
-                    }
-                }
-            }
-        }
-
-        return None;
-    }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- CLAUSE DATABASE REDUCTION ------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-    /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
-    /// in the current assignment
-    fn is_locked(&self, clause_id: ClauseId) -> bool {
-        let ref clause = self.clauses[clause_id];
-        if clause.len() < 2 { return true; }
-
-        let lit = clause[0];
-        if self.is_undef(lit) {
-            return false;
-        } else {
-            let reason = self.reason[lit.var()];
-
-            return match reason {
-                None    => false,
-                Some(x) => x == clause_id
-            }
-        }
-    }
-
-    /// Computes the literal block distance (LBD) of some clause.
-    fn literal_block_distance(&self, clause_id: ClauseId) -> u32 {
-        // Shortcut: Having an LBD of two means it is a glue clause. It will never be deleted so
-        // hence there is no point in recomputing it every time as it is not going to be improved.
-        let ref clause = self.clauses[clause_id];
-        if clause.get_lbd() <= 2 { return clause.get_lbd(); }
-
-        let nb_levels = self.level.len();
-        let mut blocks = FixedBitSet::with_capacity(nb_levels +1 );
-        let mut lbd = 0;
-
-        for lit in clause.iter() {
-            let level = self.level[lit.var()] as usize;
-
-            if !blocks.contains(level) {
-                blocks.insert(level);
-                lbd += 1;
-            }
-        }
-
-        return lbd;
-    }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- RESTART ------------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- BACKTRACKING -------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-
 
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- MISC ---------------------------------------------------------//
@@ -312,80 +215,21 @@ impl Solver {
         self.reason[lit.var()].is_none()
     }
 
-    /// This is where we do the bulk of the work to add a clause to a clause database.
-    ///
-    /// # Return Value
-    /// It returns Ok(clause_id) when the clause could be added to the database and Err(()) when
-    /// it couldn't. In the former case, `clause_id` is the identifier of the clause that has just
-    /// been added to the database or the constant CLAUSE_ELIDED which is used to mean that the
-    /// clause was not explicitly encoded but was implicitly represented instead (this is ie useful
-    /// for unit clauses). In the event where the addition of the clause would make the whole
-    /// problem unsat, this method returns Err(()).
-    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
-        // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drat {
-            println!("a {}", clause.to_dimacs());
-        }
+    /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
+    /// in the current assignment
+    fn is_locked(&self, clause_id: ClauseId) -> bool {
+        let ref clause = self.clauses[clause_id];
+        if clause.len() < 2 { return true; }
 
-        let c_id= self.clauses.len();
+        let lit = clause[0];
+        if self.is_undef(lit) {
+            return false;
+        } else {
+            let reason = self.reason[lit.var()];
 
-        // if it is the empty clause that we're adding, the problem is solved and provably unsat
-        if clause.len() == 0 {
-            self.is_unsat = true;
-            return Err(());
-        }
-
-        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
-        if clause.len() == 1 {
-            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
-            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
-        }
-
-        // -- Activate the clause --
-        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
-        // at least two literals
-        // -- Note -----------------
-        // Using `self.activate(c_id)` would have been correct too. However, I chose not to opt for
-        // that solution since it involves quite a severe performance penalty.
-        // -------------------------
-        let wl1 = clause[0];
-        let wl2 = clause[1];
-
-        self.clauses.push(clause);
-        self.watchers[wl1].push(c_id);
-        self.watchers[wl2].push(c_id);
-
-        return Ok(c_id);
-    }
-
-    /// Renames the clause identified by `from` and gives it the new identifier `into`.
-    ///
-    /// This method is useful to fix the state of the solver after we removed a clause. Indeed, the
-    /// removal is done in O(1) but potentially moves a clause at an other location in the database.
-    /// In that case, is useful to _rename_ the clause so that other parts of the solver are also
-    /// aware of the location change.
-    fn rename_clause(&mut self, from: ClauseId, into: ClauseId) {
-        // Replace last by clause_id in the watchers lists
-        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
-            let watched = self.clauses[from][i];
-
-            let nb_watchers = self.watchers[watched].len();
-            for i in 0..nb_watchers {
-                if self.watchers[watched][i] == from {
-                    self.watchers[watched][i] = into;
-                    break;
-                }
-            }
-        }
-
-        // Replace last by clause_id in the reason
-        let first_variable = self.clauses[from][0].var();
-        match self.reason[first_variable] {
-            None => { /* nothing to do */ },
-            Some(r) => {
-                if r == from {
-                    self.reason[first_variable] = Some(into)
-                }
+            return match reason {
+                None    => false,
+                Some(x) => x == clause_id
             }
         }
     }
@@ -427,9 +271,8 @@ impl Solver {
 }
 
 // -------------------------------------------------------------------------------------------//
-// ---------------------------- IMPLEMENTATION OF THE SOLVER TRAITS --------------------------//
+// ---------------------------- CONFLICT ANALYSIS --------------------------------------------//
 // -------------------------------------------------------------------------------------------//
-
 impl ConflictAnalysis for Solver {
     /// This method analyzes the conflict to derive a new clause, add it to the database and
     /// rolls back the assignment stack until the moment where the solver has reached a stable
@@ -630,6 +473,9 @@ impl ConflictAnalysis for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- RESTARTS -----------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl Restart for Solver {
     /// Asks the restart strategy and tells if a complete restart of the search should be triggered
     #[inline]
@@ -648,6 +494,9 @@ impl Restart for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- CLAUSE DELETION ----------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl ClauseDeletion for Solver {
     /// Tells whether or not it is desireable to reduce the size of the database and forget some
     /// of the less useful clauses
@@ -700,6 +549,37 @@ impl ClauseDeletion for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the DB reduction
+// -------------------------------------------------------------------------------------------
+impl Solver {
+    /// Computes the literal block distance (LBD) of some clause.
+    fn literal_block_distance(&self, clause_id: ClauseId) -> u32 {
+        // Shortcut: Having an LBD of two means it is a glue clause. It will never be deleted so
+        // hence there is no point in recomputing it every time as it is not going to be improved.
+        let ref clause = self.clauses[clause_id];
+        if clause.get_lbd() <= 2 { return clause.get_lbd(); }
+
+        let nb_levels = self.level.len();
+        let mut blocks = FixedBitSet::with_capacity(nb_levels +1 );
+        let mut lbd = 0;
+
+        for lit in clause.iter() {
+            let level = self.level[lit.var()] as usize;
+
+            if !blocks.contains(level) {
+                blocks.insert(level);
+                lbd += 1;
+            }
+        }
+
+        return lbd;
+    }
+}
+
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- BACKTRACKING -------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl Backtracking for Solver {
     /// Rolls back the search up to the given position.
     fn rollback(&mut self, until : usize) {
@@ -744,6 +624,9 @@ impl Backtracking for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- VALUATION ----------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl Valuation for Solver {
     /// Tells number of variables in the problem
     #[inline]
@@ -770,6 +653,9 @@ impl Valuation for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- CLAUSE DB ----------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl ClauseDatabase for Solver {
     /// This function adds a problem clause to the database.
     ///
@@ -893,6 +779,92 @@ impl ClauseDatabase for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the DB management
+// -------------------------------------------------------------------------------------------
+impl Solver {
+    /// This is where we do the bulk of the work to add a clause to a clause database.
+    ///
+    /// # Return Value
+    /// It returns Ok(clause_id) when the clause could be added to the database and Err(()) when
+    /// it couldn't. In the former case, `clause_id` is the identifier of the clause that has just
+    /// been added to the database or the constant CLAUSE_ELIDED which is used to mean that the
+    /// clause was not explicitly encoded but was implicitly represented instead (this is ie useful
+    /// for unit clauses). In the event where the addition of the clause would make the whole
+    /// problem unsat, this method returns Err(()).
+    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drat {
+            println!("a {}", clause.to_dimacs());
+        }
+
+        let c_id= self.clauses.len();
+
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause.len() == 0 {
+            self.is_unsat = true;
+            return Err(());
+        }
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause.len() == 1 {
+            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
+            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
+        }
+
+        // -- Activate the clause --
+        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
+        // at least two literals
+        // -- Note -----------------
+        // Using `self.activate(c_id)` would have been correct too. However, I chose not to opt for
+        // that solution since it involves quite a severe performance penalty.
+        // -------------------------
+        let wl1 = clause[0];
+        let wl2 = clause[1];
+
+        self.clauses.push(clause);
+        self.watchers[wl1].push(c_id);
+        self.watchers[wl2].push(c_id);
+
+        return Ok(c_id);
+    }
+
+    /// Renames the clause identified by `from` and gives it the new identifier `into`.
+    ///
+    /// This method is useful to fix the state of the solver after we removed a clause. Indeed, the
+    /// removal is done in O(1) but potentially moves a clause at an other location in the database.
+    /// In that case, is useful to _rename_ the clause so that other parts of the solver are also
+    /// aware of the location change.
+    fn rename_clause(&mut self, from: ClauseId, into: ClauseId) {
+        // Replace last by clause_id in the watchers lists
+        for i in 0..2 { // Note: 0..2 is only ok as long as it is impossible to remove clauses that have become unit
+            let watched = self.clauses[from][i];
+
+            let nb_watchers = self.watchers[watched].len();
+            for i in 0..nb_watchers {
+                if self.watchers[watched][i] == from {
+                    self.watchers[watched][i] = into;
+                    break;
+                }
+            }
+        }
+
+        // Replace last by clause_id in the reason
+        let first_variable = self.clauses[from][0].var();
+        match self.reason[first_variable] {
+            None => { /* nothing to do */ },
+            Some(r) => {
+                if r == from {
+                    self.reason[first_variable] = Some(into)
+                }
+            }
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- WATCHED LITERALS ---------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl WatchedLiterals for Solver {
 
     /// Tries to find a new literal that can be watched by the given clause.
@@ -1016,6 +988,9 @@ impl WatchedLiterals for Solver {
     }
 }
 
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- PROPAGATION --------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
 impl Propagation for Solver {
     /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
     /// in the Valuation and it enqueues the negation of the literal on the propagation queue
@@ -1083,6 +1058,45 @@ impl Propagation for Solver {
 
             self.propagated += 1;
         }
+        return None;
+    }
+}
+
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the propagation
+// -------------------------------------------------------------------------------------------
+impl Solver {
+    /// Notifies all the watchers of `lit` that `lit` has been falsified.
+	/// This method optionally returns a conflicting clause if one is found.
+    fn propagate_literal(&mut self, lit: Literal) -> Option<Conflict> {
+        // we loop backwards to avoid messing up with the items that are appended to the list while
+        // iterating over it. Logically, the two sets should be separated (but merged after the fn).
+        // This iterating scheme achieves that goal.
+        for i in (0..self.watchers[lit].len()).rev() {
+            let watcher = self.watchers[lit][i];
+            self.watchers[lit].swap_remove(i);
+
+            let new_literal_found = self.find_new_literal(watcher, lit);
+            match new_literal_found {
+                Ok(l) => {
+                    // l was found, its ok. We only need to start watching it
+                    self.watchers[l].push(watcher);
+                },
+                Err(l) => {
+                    // No result could be found, so we need to keep watching `lit`
+                    self.watchers[lit].push(watcher);
+                    // In the meantime we also need to assign `l`, otherwise the whole
+                    // clause is going to be unsat
+                    match self.assign(l, Some(watcher)) {
+                        // Assignment went on well, we're done
+                        Ok(()) => {},
+                        // Conflict detected, return it !
+                        Err(()) => return Some(watcher)
+                    }
+                }
+            }
+        }
+
         return None;
     }
 }
