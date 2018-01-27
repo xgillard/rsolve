@@ -134,69 +134,6 @@ impl Solver {
         return solver;
     }
 
-    /// This function adds a problem clause to the database.
-    ///
-    /// # Note
-    /// The heavy lifting is done by `add_clause` but before proceeding to the actual addition,
-    /// we make sure that we dont 'pollute' our clause database with clauses that are useless.
-    /// In particular, we make sure to remove tautological clauses (either contains both polarities
-    /// for a given variable or contains a literal which is already marked implied).
-    ///
-    /// # Return Value
-    /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
-    /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
-    pub fn add_problem_clause(&mut self, c : &mut Vec<iint>) -> Result<ClauseId, ()> {
-        // don't add the clause if it is a tautology
-        c.sort_unstable_by(|x, y| x.abs().cmp(&y.abs()));
-
-        for i in (1..c.len()).rev() {
-            // remove duplicate literals
-            if c[i] ==  c[i-1] { c.swap_remove(i); continue; }
-            // do not add tautological clauses to the database
-            if c[i] == -c[i-1] { return Ok(CLAUSE_ELIDED); }
-        }
-
-        let literals: Vec<Literal> = c.iter()
-                                     .map(|l|Literal::from(*l))
-                                     .filter(|l| !self.flags[!*l].is_set(Flag::IsForced))
-                                     .collect();
-
-        // don't add the clause if it's guaranteed to be satisfied
-        for l in literals.iter() {
-            if self.flags[*l].is_set(Flag::IsForced) {
-                return Ok(CLAUSE_ELIDED);
-            }
-        }
-
-        return self.add_clause(Clause::new(literals, false) );
-    }
-
-    /// This function adds a learned clause to the database.
-    ///
-    /// In this case, we dont waste time checking for tautologies (both polarities) since the
-    /// conflict resolution algorithm prevents the occurence of such clauses.
-    ///
-    /// # Note
-    /// It could still be beneficial to avoid adding learned clauses that are forcibly satisfied.
-    /// However, as tempting as it is, I have refrained from doing this since it impacts conflict
-    /// resolution (the conflict resolution strategy asserts the first literal of the learned clause
-    /// and assumes that clause is added to the database).
-    fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()> {
-        let result = self.add_clause(Clause::new(c, true) );
-
-        if result.is_ok() && result.unwrap() != CLAUSE_ELIDED {
-            self.nb_learned += 1;
-
-            // set an initial lbd for learned clauses
-            let clause_id = result.unwrap();
-            let lbd = self.literal_block_distance(clause_id);
-            self.clauses[clause_id].set_lbd(lbd);
-            self.clauses[clause_id].set_lbd_recently_updated(true);
-        }
-
-        return result;
-    }
-
     // -------------------------------------------------------------------------------------------//
     // ---------------------------- SEARCH -------------------------------------------------------//
     // -------------------------------------------------------------------------------------------//
@@ -750,20 +687,50 @@ impl Solver {
         self.reason[lit.var()].is_none()
     }
 
-    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
-    /// not been marked-bumped yet
+    /// This is where we do the bulk of the work to add a clause to a clause database.
     ///
-    /// # Note
-    /// This function is implemented as an associated function in order to get over the complaints
-    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
-    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
-    /// the state are required to be muted.
-    #[inline]
-    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
-        if !flags[lit].is_set(Flag::IsMarked) {
-            flags[lit].set(Flag::IsMarked);
-            var_order.bump(lit.var() );
+    /// # Return Value
+    /// It returns Ok(clause_id) when the clause could be added to the database and Err(()) when
+    /// it couldn't. In the former case, `clause_id` is the identifier of the clause that has just
+    /// been added to the database or the constant CLAUSE_ELIDED which is used to mean that the
+    /// clause was not explicitly encoded but was implicitly represented instead (this is ie useful
+    /// for unit clauses). In the event where the addition of the clause would make the whole
+    /// problem unsat, this method returns Err(()).
+    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
+        // Print the clause to produce the UNSAT certificate if it was required.
+        if self.drat {
+            println!("a {}", clause.to_dimacs());
         }
+
+        let c_id= self.clauses.len();
+
+        // if it is the empty clause that we're adding, the problem is solved and provably unsat
+        if clause.len() == 0 {
+            self.is_unsat = true;
+            return Err(());
+        }
+
+        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
+        if clause.len() == 1 {
+            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
+            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
+        }
+
+        // -- Activate the clause --
+        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
+        // at least two literals
+        // -- Note -----------------
+        // Using `self.activate(c_id)` would have been correct too. However, I chose not to opt for
+        // that solution since it involves quite a severe performance penalty.
+        // -------------------------
+        let wl1 = clause[0];
+        let wl2 = clause[1];
+
+        self.clauses.push(clause);
+        self.watchers[wl1].push(c_id);
+        self.watchers[wl2].push(c_id);
+
+        return Ok(c_id);
     }
 
     /// Renames the clause identified by `from` and gives it the new identifier `into`.
@@ -816,6 +783,22 @@ impl Solver {
             }
         }
     }
+
+    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
+    /// not been marked-bumped yet
+    ///
+    /// # Note
+    /// This function is implemented as an associated function in order to get over the complaints
+    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
+    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
+    /// the state are required to be muted.
+    #[inline]
+    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
+        if !flags[lit].is_set(Flag::IsMarked) {
+            flags[lit].set(Flag::IsMarked);
+            var_order.bump(lit.var() );
+        }
+    }
 }
 
 // -------------------------------------------------------------------------------------------//
@@ -849,46 +832,67 @@ impl Valuation for Solver {
 }
 
 impl ClauseDatabase for Solver {
-    /// This is where we do the bulk of the work to add a clause to a clause database.
+    /// This function adds a problem clause to the database.
+    ///
+    /// # Note
+    /// The heavy lifting is done by `add_clause` but before proceeding to the actual addition,
+    /// we make sure that we dont 'pollute' our clause database with clauses that are useless.
+    /// In particular, we make sure to remove tautological clauses (either contains both polarities
+    /// for a given variable or contains a literal which is already marked implied).
     ///
     /// # Return Value
-    /// This function returns a result (Ok, Err) with the id of the clause that has been added. It
-    /// returns Err when adding the clause makes the whole problem UNSAT.
-    fn add_clause(&mut self, clause: Clause) -> Result<ClauseId, ()> {
-        // Print the clause to produce the UNSAT certificate if it was required.
-        if self.drat {
-            println!("a {}", clause.to_dimacs());
+    /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
+    /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
+    fn add_problem_clause(&mut self, c : &mut Vec<iint>) -> Result<ClauseId, ()> {
+        // don't add the clause if it is a tautology
+        c.sort_unstable_by(|x, y| x.abs().cmp(&y.abs()));
+
+        for i in (1..c.len()).rev() {
+            // remove duplicate literals
+            if c[i] ==  c[i-1] { c.swap_remove(i); continue; }
+            // do not add tautological clauses to the database
+            if c[i] == -c[i-1] { return Ok(CLAUSE_ELIDED); }
         }
 
-        let c_id= self.clauses.len();
+        let literals: Vec<Literal> = c.iter()
+            .map(|l|Literal::from(*l))
+            .filter(|l| !self.flags[!*l].is_set(Flag::IsForced))
+            .collect();
 
-        // if it is the empty clause that we're adding, the problem is solved and provably unsat
-        if clause.len() == 0 {
-            self.is_unsat = true;
-            return Err(());
+        // don't add the clause if it's guaranteed to be satisfied
+        for l in literals.iter() {
+            if self.flags[*l].is_set(Flag::IsForced) {
+                return Ok(CLAUSE_ELIDED);
+            }
         }
 
-        // if the clause is unit, we shouldn't watch it, it should be enough to just assert it
-        if clause.len() == 1 {
-            self.is_unsat |= self.assign(clause[0], Some(CLAUSE_ELIDED)).is_err();
-            return if self.is_unsat { Err(())} else { Ok(CLAUSE_ELIDED) };
+        return self.add_clause(Clause::new(literals, false) );
+    }
+
+    /// This function adds a learned clause to the database.
+    ///
+    /// In this case, we dont waste time checking for tautologies (both polarities) since the
+    /// conflict resolution algorithm prevents the occurence of such clauses.
+    ///
+    /// # Note
+    /// It could still be beneficial to avoid adding learned clauses that are forcibly satisfied.
+    /// However, as tempting as it is, I have refrained from doing this since it impacts conflict
+    /// resolution (the conflict resolution strategy asserts the first literal of the learned clause
+    /// and assumes that clause is added to the database).
+    fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()> {
+        let result = self.add_clause(Clause::new(c, true) );
+
+        if result.is_ok() && result.unwrap() != CLAUSE_ELIDED {
+            self.nb_learned += 1;
+
+            // set an initial lbd for learned clauses
+            let clause_id = result.unwrap();
+            let lbd = self.literal_block_distance(clause_id);
+            self.clauses[clause_id].set_lbd(lbd);
+            self.clauses[clause_id].set_lbd_recently_updated(true);
         }
 
-        // -- Activate the clause --
-        // clauses of size 0 and 1 are out of the way. We're certain to remain with clauses having
-        // at least two literals
-        // -- Note -----------------
-        // Using `self.activate(c_id)` would have been correct too. However, I chose not to opt for
-        // that solution since it involves quite a severe performance penalty.
-        // -------------------------
-        let wl1 = clause[0];
-        let wl2 = clause[1];
-
-        self.clauses.push(clause);
-        self.watchers[wl1].push(c_id);
-        self.watchers[wl2].push(c_id);
-
-        return Ok(c_id);
+        return result;
     }
 
     /// Removes a clause from the database.

@@ -7,16 +7,19 @@ use super::*;
 /// the problem.
 // -----------------------------------------------------------------------------------------------
 pub trait ClauseDatabase {
-    /// Adds a new clause to the database.
+    /// Adds a problem clause to the database.
     ///
     /// # Return Value
-    /// It returns Ok(clause_id) when the clause could be added to the database and Err(()) when
-    /// it couldn't. In the former case, `clause_id` is the identifier of the clause that has just
-    /// been added to the database or the constant CLAUSE_ELIDED which is used to mean that the
-    /// clause was not explicitly encoded but was implicitly represented instead (this is ie useful
-    /// for unit clauses). In the event where the addition of the clause would make the whole
-    /// problem unsat, this method returns Err(()).
-    fn add_clause(&mut self, c: Clause) -> Result<ClauseId, ()>;
+    /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
+    /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
+    fn add_problem_clause(&mut self, c : &mut Vec<iint>) -> Result<ClauseId, ()>;
+
+    /// Adds a learned clause to the database.
+    ///
+    /// # Return Value
+    /// This function returns a Result (Ok, Err) with the id of the clause that has been added.
+    /// However, when it is decided not to add the clause to database, Ok(CLAUSE_ELIDED) is returned.
+    fn add_learned_clause(&mut self, c :Vec<Literal>) -> Result<ClauseId, ()>;
 
     /// Removes the clause identified by `c_id` from the database.
     fn remove_clause(&mut self, c_id: ClauseId);
