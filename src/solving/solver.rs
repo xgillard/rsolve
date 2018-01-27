@@ -133,11 +133,12 @@ impl Solver {
 
         return solver;
     }
+}
 
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- SEARCH -------------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- SEARCH -------------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
+impl Search for Solver {
     /// This is the core method of the solver, it determines the satisfiability of the
 	/// problem through a CDCL based solving.
 	///
@@ -145,7 +146,7 @@ impl Solver {
 	/// true if there exist an assignment satisfying the given cnf problem.
 	/// false if there exists no such assignment.
 	///
-    pub fn solve(&mut self) -> bool {
+    fn solve(&mut self) -> bool {
         loop {
             if self.is_unsat { return false; }
 
@@ -178,7 +179,12 @@ impl Solver {
             }
         }
     }
+}
 
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the Search
+// -------------------------------------------------------------------------------------------
+impl Solver {
     /// Returns the next literal to branch on. This method uses the variable ordering
     /// heuristic (based on vsids) and the phase saving mechanism built-in the variables.
     /// Whenever all variables have been assigned, this method returns None in order to mean
@@ -198,75 +204,6 @@ impl Solver {
         }
 
         return None;
-    }
-
-    // -------------------------------------------------------------------------------------------//
-    // ---------------------------- MISC ---------------------------------------------------------//
-    // -------------------------------------------------------------------------------------------//
-
-    /// Tells the position of the 'root' of the problem. That is to say the position in the trail
-    /// as of where the search starts. All literals before the root() are at level 0 and cannot
-    /// be challenge since they directly follow from the problem statement.
-    #[inline]
-    pub fn root(&self) -> usize { self.forced }
-
-    #[inline]
-    fn is_decision(&self, lit : Literal) -> bool {
-        self.reason[lit.var()].is_none()
-    }
-
-    /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
-    /// in the current assignment
-    fn is_locked(&self, clause_id: ClauseId) -> bool {
-        let ref clause = self.clauses[clause_id];
-        if clause.len() < 2 { return true; }
-
-        let lit = clause[0];
-        if self.is_undef(lit) {
-            return false;
-        } else {
-            let reason = self.reason[lit.var()];
-
-            return match reason {
-                None    => false,
-                Some(x) => x == clause_id
-            }
-        }
-    }
-
-    /// If `c_id` is the reason for some unit propagation, it resets that reason and makes it None.
-    /// Using this function is *dangerous* for the correctness of the solver. It should only be used
-    /// before removing the clause or before a simplification round.
-    ///
-    /// !!! This function is too dangerous, I'm not sure of keeping it in the future. !!!
-    #[inline]
-    fn unlock_clause(&mut self, c_id: ClauseId) {
-        // Remove clause_id from the reason
-        let first_variable = self.clauses[c_id][0].var();
-        match self.reason[first_variable] {
-            None    => { /* nothing to do */ },
-            Some(r) => {
-                if r == c_id {
-                    self.reason[first_variable] = None
-                }
-            }
-        }
-    }
-
-    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
-    /// not been marked-bumped yet
-    ///
-    /// # Note
-    /// This function is implemented as an associated function in order to get over the complaints
-    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
-    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
-    /// the state are required to be muted.
-    #[inline]
-    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
-        if !flags[lit].is_set(Flag::IsMarked) {
-            flags[lit].set(Flag::IsMarked);
-            var_order.bump(lit.var() );
-        }
     }
 }
 
@@ -1124,6 +1061,80 @@ impl Solver {
         }
 
         return None;
+    }
+}
+
+// -------------------------------------------------------------------------------------------//
+// ---------------------------- MISC ---------------------------------------------------------//
+// -------------------------------------------------------------------------------------------//
+
+// -------------------------------------------------------------------------------------------
+// Private, Helper functions for the solver
+// -------------------------------------------------------------------------------------------
+impl Solver {
+    /// Tells the position of the 'root' of the problem. That is to say the position in the trail
+    /// as of where the search starts. All literals before the root() are at level 0 and cannot
+    /// be challenge since they directly follow from the problem statement.
+    #[inline]
+    pub fn root(&self) -> usize { self.forced }
+
+    #[inline]
+    fn is_decision(&self, lit : Literal) -> bool {
+        self.reason[lit.var()].is_none()
+    }
+
+    /// Returns true iff the given clause (alias) is used as the reason of some unit propagation
+    /// in the current assignment
+    fn is_locked(&self, clause_id: ClauseId) -> bool {
+        let ref clause = self.clauses[clause_id];
+        if clause.len() < 2 { return true; }
+
+        let lit = clause[0];
+        if self.is_undef(lit) {
+            return false;
+        } else {
+            let reason = self.reason[lit.var()];
+
+            return match reason {
+                None    => false,
+                Some(x) => x == clause_id
+            }
+        }
+    }
+
+    /// If `c_id` is the reason for some unit propagation, it resets that reason and makes it None.
+    /// Using this function is *dangerous* for the correctness of the solver. It should only be used
+    /// before removing the clause or before a simplification round.
+    ///
+    /// !!! This function is too dangerous, I'm not sure of keeping it in the future. !!!
+    #[inline]
+    fn unlock_clause(&mut self, c_id: ClauseId) {
+        // Remove clause_id from the reason
+        let first_variable = self.clauses[c_id][0].var();
+        match self.reason[first_variable] {
+            None    => { /* nothing to do */ },
+            Some(r) => {
+                if r == c_id {
+                    self.reason[first_variable] = None
+                }
+            }
+        }
+    }
+
+    /// Convenience (private) method to mark and bump a literal during conflict analysis iff it has
+    /// not been marked-bumped yet
+    ///
+    /// # Note
+    /// This function is implemented as an associated function in order to get over the complaints
+    /// of the borrow checker. Indeed, this fn is used in contexts where &self is already borrowed
+    /// mutably/immutably. This function solves the problem by explicily mentioning which parts of
+    /// the state are required to be muted.
+    #[inline]
+    fn mark_and_bump(lit : Literal, flags: &mut LitIdxVec<Flags>, var_order: &mut VSIDS ) {
+        if !flags[lit].is_set(Flag::IsMarked) {
+            flags[lit].set(Flag::IsMarked);
+            var_order.bump(lit.var() );
+        }
     }
 }
 

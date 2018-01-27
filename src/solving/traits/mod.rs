@@ -8,6 +8,7 @@ mod conflict_analysis;
 mod restart;
 mod backtracking;
 mod clause_deletion;
+mod search;
 
 pub use super::*;
 pub use self::valuation::Valuation;
@@ -18,3 +19,4 @@ pub use self::conflict_analysis::ConflictAnalysis;
 pub use self::restart::Restart;
 pub use self::backtracking::Backtracking;
 pub use self::clause_deletion::ClauseDeletion;
+pub use self::search::Search;
