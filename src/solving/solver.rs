@@ -57,8 +57,20 @@ pub struct Solver {
     max_learned  : usize,
     /// The restart strategy (luby)
     restart_strat: Luby,
+
     /// The last level at which some variable was assigned (intervenes in the LBD computation)
     level        : VarIdxVec<u32>,
+    /// This is an heuristic 'quality' score associated with each of the clauses which is used
+    /// by the solver's clause management (removal) strategy. It measures the number of propagation
+    /// blocks that were necessary for this clause to become falsified.
+    /// See `Predicting Learnt Clauses Quality in Modern SAT Solvers.` Audemard, Simon in aaai2009
+    /// for the full details about literal block distance.
+    lbd: Vec<u32>,
+    /// This flag indicates whether or not the LBD of this clause has 'recently' been updated. That
+    /// is to say, it tells whether or not the LBD of this clause has been improved since the last
+    /// round of database reduction. This indication is helpful in the sense that it helps protecting
+    /// against deletion the clauses that have recently been of interest.
+    lbd_recently_updated: FixedBitSet,
 
     // ~~~ # Propagation ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     /// Watchers: vectors of watchers associated with each literal.
@@ -92,6 +104,7 @@ impl Solver {
     // ---------------------------- PROBLEM DEFINITION -------------------------------------------//
     // -------------------------------------------------------------------------------------------//
     pub fn new(nb_vars: usize) -> Solver {
+        let nb_clauses = 1_000_000;
         let mut solver = Solver {
             drat: false,
             nb_decisions: 0,
@@ -101,14 +114,17 @@ impl Solver {
             nb_learned: 0,
 
             valuation: VarIdxVec::from(vec![Bool::Undef; nb_vars]),
-            clauses: vec![],
+            clauses: Vec::with_capacity(nb_clauses),
             is_unsat: false,
 
             var_order: VSIDS::new(nb_vars),
             phase_saving: FixedBitSet::with_capacity(1 + nb_vars),
             max_learned: 1000,
             restart_strat: Luby::new(100),
+
             level: VarIdxVec::from(vec![0; nb_vars]),
+            lbd  : Vec::with_capacity(nb_clauses),
+            lbd_recently_updated: FixedBitSet::with_capacity(nb_clauses),
 
             watchers: LitIdxVec::with_capacity(nb_vars),
             prop_queue: Vec::with_capacity(nb_vars),
@@ -454,18 +470,17 @@ impl ClauseDeletion for Solver {
     /// one round.
     #[inline]
     fn clause_bump(&mut self, c_id: ClauseId) {
-        let old_lbd = self.clauses[c_id].get_lbd();
+        let old_lbd = self.lbd[c_id];
 
         // If it is already a glue clause, there is no point in trying to improve LBD any further
         if old_lbd <= 2 {
             return;
         }
 
-        let lbd = self.literal_block_distance(c_id);
-        if lbd < old_lbd {
-            let clause = &mut self.clauses[c_id];
-            clause.set_lbd(lbd);
-            clause.set_lbd_recently_updated(true);
+        let new_lbd = self.literal_block_distance(c_id);
+        if new_lbd < old_lbd {
+            self.lbd[c_id] = new_lbd;
+            self.lbd_recently_updated.insert(c_id);
         }
     }
 
@@ -477,7 +492,7 @@ impl ClauseDeletion for Solver {
             .filter(|id| self.can_forget(*id))
             .collect();
 
-        remove_agenda.sort_unstable_by_key(|c| self.clauses[*c].get_lbd());
+        remove_agenda.sort_unstable_by_key(|c| self.lbd[*c]);
         remove_agenda.reverse();
 
         // reduces the size of the database by removing half of the worst clauses.
@@ -490,9 +505,7 @@ impl ClauseDeletion for Solver {
         self.remove_all(&mut remove_agenda);
 
         // Remove 'protection' on all the clauses
-        for c in self.clauses.iter_mut() {
-            c.set_lbd_recently_updated(false);
-        }
+        self.lbd_recently_updated.clear();
 
         // allow the solver to learn somewhat more clauses before we reduce the database again
         self.max_learned = (self.max_learned * 3) / 2;
@@ -511,9 +524,9 @@ impl Solver {
         let ref clause = self.clauses[clause_id];
 
         clause.is_learned
-            && clause.get_lbd() > 2
-            && clause.len() > 2
-            && !clause.is_lbd_recently_updated()
+            &&  clause.len() > 2
+            &&  self.lbd[clause_id] > 2
+            && !self.lbd_recently_updated[clause_id]
             && !self.is_locked(clause_id)
     }
 
@@ -521,13 +534,13 @@ impl Solver {
     fn literal_block_distance(&self, clause_id: ClauseId) -> u32 {
         // Shortcut: Having an LBD of two means it is a glue clause. It will never be deleted so
         // hence there is no point in recomputing it every time as it is not going to be improved.
-        let ref clause = self.clauses[clause_id];
-        if clause.get_lbd() <= 2 { return clause.get_lbd(); }
+        if self.lbd[clause_id] <= 2 { return self.lbd[clause_id]; }
 
         let nb_levels = self.level.len();
         let mut blocks = FixedBitSet::with_capacity(nb_levels +1 );
         let mut lbd = 0;
 
+        let ref clause = self.clauses[clause_id];
         for lit in clause.iter() {
             let level = self.level[lit.var()] as usize;
 
@@ -682,8 +695,8 @@ impl ClauseDatabase for Solver {
             // set an initial lbd for learned clauses
             let clause_id = result.unwrap();
             let lbd = self.literal_block_distance(clause_id);
-            self.clauses[clause_id].set_lbd(lbd);
-            self.clauses[clause_id].set_lbd_recently_updated(true);
+            self.lbd[clause_id] = lbd;
+            self.lbd_recently_updated.insert(clause_id);
         }
 
         return result;
@@ -722,6 +735,7 @@ impl ClauseDatabase for Solver {
         }
 
         self.clauses.swap_remove(clause_id);
+        self.lbd.swap_remove(clause_id);
     }
 
     /// Proceed to the deletion of a set of clauses in the database.
@@ -792,6 +806,12 @@ impl Solver {
         let wl2 = clause[1];
 
         self.clauses.push(clause);
+        self.lbd.push(u32::max_value());
+
+        if c_id >= self.lbd_recently_updated.len() {
+            self.lbd_recently_updated.grow( c_id * 2 );
+        }
+
         self.watchers[wl1].push(c_id);
         self.watchers[wl2].push(c_id);
 
@@ -828,6 +848,10 @@ impl Solver {
                 }
             }
         }
+
+        // Replace lbd-based protection
+        let protected = self.lbd_recently_updated.contains(from);
+        self.lbd_recently_updated.set(into, protected);
     }
 }
 
@@ -2467,11 +2491,11 @@ mod tests {
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3), lit(4), lit(5)]);
         solver.add_learned_clause(vec![lit(1), lit(2)]);
 
-        solver.clauses[0].set_lbd(5); // should be dropped
-        solver.clauses[1].set_lbd(3); // should be kept
+        solver.lbd[0] = 5; // should be dropped
+        solver.lbd[1] = 3; // should be kept
 
-        solver.clauses[0].set_lbd_recently_updated(false);
-        solver.clauses[1].set_lbd_recently_updated(false);
+        solver.lbd_recently_updated.set(0, false);
+        solver.lbd_recently_updated.set(1, false);
 
         assert!(solver.assign(lit(1), None).is_ok());
 
@@ -2491,8 +2515,8 @@ mod tests {
         solver.add_learned_clause(vec![lit(2), lit(1), lit(3), lit(4), lit(5)]);
         solver.add_learned_clause(vec![lit(1), lit(2), lit(3)]);
 
-        solver.clauses[0].set_lbd(5); // should be dropped, but it is locked
-        solver.clauses[1].set_lbd(2); // should be kept
+        solver.lbd[0] = 5; // should be dropped, but it is locked
+        solver.lbd[1] = 2; // should be kept
 
         assert!(solver.assign(lit(1), None   ).is_ok());
         assert!(solver.assign(lit(2), Some(0)).is_ok());
@@ -2510,13 +2534,13 @@ mod tests {
         solver.add_learned_clause(vec![lit(1), lit(3), lit(4)]);
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]);
 
-        solver.clauses[0].set_lbd(18); // should be removed but it is a problem clause
-        solver.clauses[1].set_lbd(5);  // must be dropped
-        solver.clauses[2].set_lbd(4);  // must be kept
+        solver.lbd[0] = 18; // should be removed but it is a problem clause
+        solver.lbd[1] = 5 ;  // must be dropped
+        solver.lbd[2] = 4 ;  // must be kept
 
-        solver.clauses[0].set_lbd_recently_updated(false);
-        solver.clauses[1].set_lbd_recently_updated(false);
-        solver.clauses[2].set_lbd_recently_updated(false);
+        solver.lbd_recently_updated.set(0, false);
+        solver.lbd_recently_updated.set(1, false);
+        solver.lbd_recently_updated.set(2, false);
 
         assert!(solver.assign(lit(1), None).is_ok());
 
@@ -2547,12 +2571,12 @@ mod tests {
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
 
-        solver.clauses[0].set_lbd(3);
-        solver.clauses[1].set_lbd(3);
-        solver.clauses[2].set_lbd(3);
-        solver.clauses[0].set_lbd_recently_updated(false);
-        solver.clauses[1].set_lbd_recently_updated(false);
-        solver.clauses[2].set_lbd_recently_updated(false);
+        solver.lbd[0] = 3;
+        solver.lbd[1] = 3;
+        solver.lbd[2] = 3;
+        solver.lbd_recently_updated.set(0, false);
+        solver.lbd_recently_updated.set(1, false);
+        solver.lbd_recently_updated.set(2, false);
 
         assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
@@ -2566,9 +2590,9 @@ mod tests {
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
 
-        solver.clauses[0].set_lbd(3);
-        solver.clauses[1].set_lbd(3);
-        solver.clauses[2].set_lbd(3);
+        solver.lbd[0] = 3;
+        solver.lbd[1] = 3;
+        solver.lbd[2] = 3;
 
         assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
@@ -2582,12 +2606,12 @@ mod tests {
         solver.add_learned_clause(vec![lit(2), lit(3), lit(5)]);
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]);
 
-        solver.clauses[0].set_lbd(3);
-        solver.clauses[1].set_lbd(3);
-        solver.clauses[2].set_lbd(3);
-        solver.clauses[0].set_lbd_recently_updated(true);
-        solver.clauses[1].set_lbd_recently_updated(true);
-        solver.clauses[2].set_lbd_recently_updated(true);
+        solver.lbd[0] = 3;
+        solver.lbd[1] = 3;
+        solver.lbd[2] = 3;
+        solver.lbd_recently_updated.set(0, true);
+        solver.lbd_recently_updated.set(1, true);
+        solver.lbd_recently_updated.set(2, true);
 
         assert_eq!(3, solver.clauses.len());
         solver.reduce_db();
@@ -2603,14 +2627,14 @@ mod tests {
         solver.add_learned_clause(vec![lit(4), lit(3), lit(5)]); // c2
         solver.add_learned_clause(vec![lit(6), lit(3), lit(5)]); // c3
 
-        solver.clauses[0].set_lbd(7); // c0 is the clause which will be deleted
-        solver.clauses[1].set_lbd(4);
-        solver.clauses[2].set_lbd(3);
-        solver.clauses[3].set_lbd(5); // c3 will also be deleted
-        solver.clauses[0].set_lbd_recently_updated(false);
-        solver.clauses[1].set_lbd_recently_updated(false);
-        solver.clauses[2].set_lbd_recently_updated(false);
-        solver.clauses[3].set_lbd_recently_updated(false);
+        solver.lbd[0] = 7; // c0 is the clause which will be deleted
+        solver.lbd[1] = 4;
+        solver.lbd[2] = 3;
+        solver.lbd[3] = 5; // c3 will also be deleted
+        solver.lbd_recently_updated.set(0, false);
+        solver.lbd_recently_updated.set(1, false);
+        solver.lbd_recently_updated.set(2, false);
+        solver.lbd_recently_updated.set(3, false);
 
         assert_eq!(&solver.watchers[lit(1)], &vec![0]);
         assert_eq!(&solver.watchers[lit(2)], &vec![1]);
@@ -2857,7 +2881,7 @@ mod tests {
 
         solver.add_learned_clause(vec![lit(1), lit(3), lit(5)]); // c0
 
-        assert_eq!(2, solver.clauses[0].get_lbd());
+        assert_eq!(2, solver.lbd[0]);
     }
 
     #[allow(non_snake_case)]
@@ -2979,12 +3003,12 @@ mod tests {
         solver.add_problem_clause(&mut vec![ 2, 5,-6]); // c4
         solver.add_problem_clause(&mut vec![ 7, 2,-6]); // c5
 
-        solver.clauses[0].set_lbd(3);
-        solver.clauses[1].set_lbd(3);
-        solver.clauses[2].set_lbd(3);
-        solver.clauses[3].set_lbd(3);
-        solver.clauses[4].set_lbd(3);
-        solver.clauses[5].set_lbd(3);
+        solver.lbd[0] = 3;
+        solver.lbd[1] = 3;
+        solver.lbd[2] = 3;
+        solver.lbd[3] = 3;
+        solver.lbd[4] = 3;
+        solver.lbd[5] = 3;
 
         assert!(solver.assign(lit(-7), None).is_ok());
         assert!(solver.propagate().is_none());
@@ -2994,10 +3018,10 @@ mod tests {
         assert!(solver.propagate().is_some());
 
         solver.assign(lit(-3), Some(0));
-        assert_eq!(2, solver.clauses[0].get_lbd());
+        assert_eq!(2, solver.lbd[0]);
 
         solver.assign(lit(-4), Some(1));
-        assert_eq!(2, solver.clauses[1].get_lbd());
+        assert_eq!(2, solver.lbd[1]);
     }
 
     fn get_last_constraint(solver : &SOLVER) -> ClauseId {

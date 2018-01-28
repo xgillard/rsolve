@@ -1,6 +1,5 @@
 use std::ops::*;
 use std::fmt;
-use std::u32;
 use super::*;
 
 // -----------------------------------------------------------------------------------------------
@@ -16,18 +15,7 @@ pub struct Clause {
     literals: Vec<Literal>,
     /// A flag indicating whether or not this clause originates from the problem definition or if
     /// it was learned during search
-    pub is_learned: bool,
-    /// This is an heuristic 'quality' score associated with each of the clauses which is used
-    /// by the solver's clause management (removal) strategy. It measures the number of propagation
-    /// blocks that were necessary for this clause to become falsified.
-    /// See `Predicting Learnt Clauses Quality in Modern SAT Solvers.` Audemard, Simon in aaai2009
-    /// for the full details about literal block distance.
-    lbd: u32,
-    /// This flag indicates whether or not the LBD of this clause has 'recently' been updated. That
-    /// is to say, it tells whether or not the LBD of this clause has been improved since the last
-    /// round of database reduction. This indication is helpful in the sense that it helps protecting
-    /// against deletion the clauses that have recently been of interest.
-    lbd_recently_updated: bool
+    pub is_learned: bool
 }
 
 impl Clause {
@@ -35,29 +23,11 @@ impl Clause {
     pub fn new(terms: Vec<Literal>, is_learned: bool) -> Clause {
         let mut clause = Clause{
             literals: terms,
-            is_learned,
-            lbd : u32::max_value(),
-            lbd_recently_updated: false
+            is_learned
         };
 
         clause.literals.shrink_to_fit();
         return clause;
-    }
-
-    /// Returns the heuristic 'quality' score associated with this clause
-    pub fn get_lbd(&self) -> u32 {
-        self.lbd
-    }
-    /// Changes the heuristic 'quality' score associated with this clause
-    pub fn set_lbd(&mut self, lbd: u32) {
-        self.lbd = lbd;
-    }
-
-    pub fn is_lbd_recently_updated(&self) -> bool {
-        self.lbd_recently_updated
-    }
-    pub fn set_lbd_recently_updated(&mut self, updated: bool) {
-        self.lbd_recently_updated = updated;
     }
 
     /// Returns a DIMACS string representation of this clause
