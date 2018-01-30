@@ -1,5 +1,5 @@
 use core::*;
-use solving::variable_selection::VariableSelection;
+use solving::heuristics::BranchingHeuristic;
 
 /// This is the implementation of a very naive (and basic) variable selection heuristic.
 /// It isn't smart nor effective, and you probably don't want to use it except for the comparison.
@@ -7,7 +7,7 @@ pub struct NaiveVariableSelection {
     available: Vec<Variable>
 }
 
-impl VariableSelection for NaiveVariableSelection {
+impl BranchingHeuristic for NaiveVariableSelection {
     /// Creates a new heuristic capable of dealing with `capa` variables.
     fn new(capa: usize) -> Self {
         let mut ret = NaiveVariableSelection {available: Vec::with_capacity(capa) };

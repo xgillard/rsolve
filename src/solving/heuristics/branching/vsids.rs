@@ -1,6 +1,6 @@
 use core::*;
 use collections::*;
-use solving::variable_selection::VariableSelection;
+use solving::heuristics::BranchingHeuristic;
 
 // -----------------------------------------------------------------------------------------------
 /// The ubiquitous Variable State Independent Decaying Sum (VSIDS) heuristic for selecting
@@ -18,7 +18,7 @@ pub struct VSIDS {
 }
 
 
-impl VariableSelection for VSIDS {
+impl BranchingHeuristic for VSIDS {
     /// Creates a new VSIDS capable of dealing with `capa` variables.
     #[inline]
     fn new(capa: usize) -> VSIDS {

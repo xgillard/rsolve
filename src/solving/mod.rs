@@ -8,13 +8,11 @@ pub type Reason   = ClauseId;
 
 pub const CLAUSE_ELIDED: ClauseId = usize::MAX;
 
-mod variable_selection;
-mod restart_strategy;
+mod heuristics;
 mod flags;
 mod solver;
 
-pub use self::variable_selection::*;
-pub use self::restart_strategy::*;
+pub use self::heuristics::*;
 
 pub use self::flags::{Flag, Flags};
 pub use self::solver::Solver;

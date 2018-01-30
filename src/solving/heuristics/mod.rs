@@ -1,7 +1,7 @@
 use core::*;
 
 /// Abstraction of a variable selection heuristic.
-pub trait VariableSelection {
+pub trait BranchingHeuristic {
     /// Creates a new VSIDS capable of dealing with `capa` variables.
     fn new(capa: usize) -> Self;
 
@@ -30,8 +30,17 @@ pub trait VariableSelection {
     fn pop_top(&mut self) -> Variable;
 }
 
-mod naive;
-pub use self::naive::NaiveVariableSelection;
+/// Abstraction of a restart strategy.
+pub trait RestartHeuristic {
+    /// Tells whether the solver should restart given it has already encountered `nb_conflicts`
+    fn should_restart(&self, nb_conflict: usize) -> bool;
 
-mod vsids;
-pub use self::vsids::VSIDS;
+    /// Sets the next conflict limit before the next restart
+    fn set_next_limit(&mut self);
+}
+
+pub mod branching;
+pub mod restart;
+
+pub use self::branching::*;
+pub use self::restart::*;

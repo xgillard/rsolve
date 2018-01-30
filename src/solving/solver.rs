@@ -425,7 +425,7 @@ impl Solver {
     /// Asks the restart strategy and tells if a complete restart of the search should be triggered
     #[inline]
     fn should_restart(&self) -> bool {
-        self.restart_strat.is_restart_required(self.nb_conflicts_since_restart)
+        self.restart_strat.should_restart(self.nb_conflicts_since_restart)
     }
 
     /// Restarts the search to find a better path towards the solution.
