@@ -149,12 +149,11 @@ impl Solver {
 
         return solver;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- SEARCH -------------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl Search for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- SEARCH -------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// This is the core method of the solver, it determines the satisfiability of the
 	/// problem through a CDCL based solving.
 	///
@@ -195,12 +194,7 @@ impl Solver {
             }
         }
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the Search
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// Returns the next literal to branch on. This method uses the variable ordering
     /// heuristic (based on vsids) and the phase saving mechanism built-in the variables.
     /// Whenever all variables have been assigned, this method returns None in order to mean
@@ -221,12 +215,11 @@ impl Solver {
 
         return None;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- CONFLICT ANALYSIS --------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl ConflictAnalysis for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- CONFLICT ANALYSIS --------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// This method analyzes the conflict to derive a new clause, add it to the database and
     /// rolls back the assignment stack until the moment where the solver has reached a stable
     /// and useful state (from which progress can be made).
@@ -256,12 +249,7 @@ impl Solver {
             }
         }
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the conflict analysis
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// This method builds a and returns minimized conflict clause by walking the marked literals
     /// to compute a cut.
     ///
@@ -429,12 +417,11 @@ impl Solver {
 
         return backjump;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- RESTARTS -----------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl Restart for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- RESTARTS -----------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// Asks the restart strategy and tells if a complete restart of the search should be triggered
     #[inline]
     fn should_restart(&self) -> bool {
@@ -450,12 +437,11 @@ impl Solver {
         self.nb_restarts += 1;
         self.nb_conflicts_since_restart = 0;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- CLAUSE DELETION ----------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl ClauseDeletion for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- CLAUSE DELETION ----------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// Tells whether or not it is desireable to reduce the size of the database and forget some
     /// of the less useful clauses
     #[inline]
@@ -510,12 +496,7 @@ impl Solver {
         // allow the solver to learn somewhat more clauses before we reduce the database again
         self.max_learned = (self.max_learned * 3) / 2;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the DB reduction
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// This function tells whether or not a clause can be forgotten by the solver.
     /// Normally all clauses that are learned and not being used at the moment (not locked) can
     /// safely be forgotten by the solver. Meanwhile, this method incorporates some heuristic
@@ -552,12 +533,11 @@ impl Solver {
 
         return lbd;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- BACKTRACKING -------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl Backtracking for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- BACKTRACKING -------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// Rolls back the search up to the given position.
     fn rollback(&mut self, until: usize) {
         // Unravel the portion of the trail with literal that really should be rolled back
@@ -579,12 +559,7 @@ impl Solver {
         self.propagated = until;
         self.prop_queue.resize(until, lit(iint::max_value()));
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the Backtracking
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// Undo all state changes that have been done for some given literal
     fn undo(&mut self, lit: Literal) {
         if self.is_decision(lit) {
@@ -604,12 +579,11 @@ impl Solver {
         // make the decision possible again
         self.var_order.push_back(v);
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- VALUATION ----------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl Valuation for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- VALUATION ----------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// Tells number of variables in the problem
     #[inline]
     pub fn nb_vars(&self) -> usize { self.valuation.len() }
@@ -642,12 +616,11 @@ impl Solver {
 
     /// Tells whether `l` was set to False
     fn is_false(&self, l: Literal) -> bool { self.get_value(l) == Bool::False }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- CLAUSE DB ----------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl ClauseDatabase for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- CLAUSE DB ----------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// This function adds a problem clause to the database.
     ///
     /// # Note
@@ -769,12 +742,7 @@ impl Solver {
             }
         }
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the DB management
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// This is where we do the bulk of the work to add a clause to a clause database.
     ///
     /// # Return Value
@@ -862,12 +830,10 @@ impl Solver {
         let protected = self.lbd_recently_updated.contains(from);
         self.lbd_recently_updated.set(into, protected);
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- WATCHED LITERALS ---------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl WatchedLiterals for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- WATCHED LITERALS ---------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
 
     /// Tries to find a new literal that can be watched by the given clause.
     ///
@@ -988,12 +954,11 @@ impl Solver {
             }
         }
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- PROPAGATION --------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
-//%impl Propagation for Solver {
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- PROPAGATION --------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+
     /// Assigns a given literal to True. That is to say, it assigns a value to the given literal
     /// in the Valuation and it enqueues the negation of the literal on the propagation queue
     ///
@@ -1056,12 +1021,7 @@ impl Solver {
         }
         return None;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the propagation
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// Notifies all the watchers of `lit` that `lit` has been falsified.
 	/// This method optionally returns a conflicting clause if one is found.
     fn propagate_literal(&mut self, lit: Literal) -> Option<Conflict> {
@@ -1095,16 +1055,11 @@ impl Solver {
 
         return None;
     }
-//%}
 
-// -------------------------------------------------------------------------------------------//
-// ---------------------------- MISC ---------------------------------------------------------//
-// -------------------------------------------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
+    // ---------------------------- MISC ---------------------------------------------------------//
+    // -------------------------------------------------------------------------------------------//
 
-// -------------------------------------------------------------------------------------------
-// Private, Helper functions for the solver
-// -------------------------------------------------------------------------------------------
-//%impl Solver {
     /// Tells the position of the 'root' of the problem. That is to say the position in the trail
     /// as of where the search starts. All literals before the root() are at level 0 and cannot
     /// be challenge since they directly follow from the problem statement.
